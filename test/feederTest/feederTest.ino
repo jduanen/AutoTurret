@@ -9,9 +9,7 @@
 #define CS_PIN      A0    // CS
 #define _FAULT_PIN  D10   // _FAULT
 
-#define DWELL_MSEC      10000
-#define NUM_SAMPLES     10
-#define MIN_DUTY_CYCLE  10.0
+#define MIN_DUTY_CYCLE  11.0
 #define MAX_DUTY_CYCLE  99.9
 #define MIN_FREQ        500
 
