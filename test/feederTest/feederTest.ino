@@ -28,16 +28,30 @@ void checkInput() {
     case 'c':
       // try to unjam the feeder by going back and forth a bit
       //// TODO
+      Serial.println("Clear");
       break;
     case 'S':
       // start
       dutyCycle = 100.0;
       PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+      Serial.println("Start");
       break;
     case 's':
       // stop
       dutyCycle = 0.0;
       PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+      Serial.println("Stop");
+      break;
+    case 'f':
+      // set frequency
+      freq = Serial.parseFloat();
+      if (freq < 0.0) {
+        freq = 0.0;
+      } else if (freq > 100.0) {
+        freq = 100.0;
+      }
+      PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+      Serial.println("Freq: %f", freq);
       break;
     default:
       dutyCycle = Serial.parseFloat();
@@ -47,6 +61,7 @@ void checkInput() {
         dutyCycle = 100.0;
       }
       PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+      Serial.println("Speed: %f", dutyCycle);
     }
   }
 }
