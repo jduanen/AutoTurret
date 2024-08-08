@@ -66,7 +66,7 @@ void checkInput() {
     default:
       dutyCycle = Serial.parseFloat();
       if (dutyCycle < MIN_DUTY_CYCLE) {
-        dutyCycle = MIN_DUTY_CYCLE;
+        dutyCycle = 0.0;
       } else if (dutyCycle >= 100.0) {
         dutyCycle = MAX_DUTY_CYCLE;
       }
@@ -108,10 +108,14 @@ void setup() {
 void loop() {
   checkInput();
 
-  if (digitalRead(_FAULT_PIN) == 0) {
-    neoPix->setColor(RED);
+  if (dutyCycle > MIN_DUTY_CYCLE) {
+    if (digitalRead(_FAULT_PIN) == 0) {
+      neoPix->setColor(RED);
+    } else {
+      neoPix->setColor(GREEN);
+    }
   } else {
-    neoPix->setColor(GREEN);
+    neoPix->setColor(BLACK);
   }
 
   loopCnt++;
