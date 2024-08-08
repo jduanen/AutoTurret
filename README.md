@@ -1,6 +1,59 @@
 # AutoTurret
 An automated turret
 
+## Features
+
+* Servo-Driven Pan and Tilt Platform
+  - ** TBD **
+
+* Airsoft Armaments
+  - Automatic Electric Gun (AEG)
+    * for initial testing
+    * ** TBD **
+  - High-Pressure Air (HPA)
+    * ** TBD **
+  - High-Speed Feeder
+    * requirements
+      - <= 3000 pellets/min (50 pellets/sec)
+      - no jamming over full capacity of pellets
+      - sufficient capacity to match air supply
+      - operates in all orientations (i.e., don't rely on gravity feed)
+      - flexible feeder line
+      - effective range <15 meters
+      - ? J, ? fps
+    * design features
+      - ?
+    * feeder data
+      - 20V@?A: 44.5 p/s
+        * max rate (24V@?A): 55 p/s
+      - current limiting resistor for DRV8876
+        * ? ohms: ????
+
+* Sensors
+  - Presence Detection
+    * 24GHz radar
+      - ** TBD **
+    * PIR
+      - ** TBD **
+  - Vision-Based Detection
+    * ** TBD **
+  - Vision-Based Targeting
+    * ** TBD **
+  - Video Streaming
+    * ** TBD **
+  - Telemetry
+    * ** TBD **
+  - Airsoft Sensors
+    * Cronograph
+      - ** TBD **
+    * Pellet Supply
+      - ** TBD **
+    * Air Supply
+      - ** TBD **
+    * Orientation
+      - absolute, repeatable, accurate (IMU, magnetometer)
+      - ** TBD **
+
 ## Notes
 
 * Pololu DRV8876 board
@@ -62,7 +115,51 @@ An automated turret
       - created a LPF with R=100K and C=.1uF to smooth the noise
     * 
 
+* Airsoft data
+  - Kinetic Energy: 1/2mv^2
+      - 0.2g  6mm pellet at 400 FPS (122 m/s): 1.5 J
+      - 0.2g  6mm pellet at 500 FPS (152 m/s): 2.3 J
+      - 0.2g  6mm pellet at 600 FPS (183 m/s): 3.3 J
+      - 0.25g 6mm pellet at 360 FPS (110 m/s): 1.5 J
+      - 0.35g 6mm pellet at 450 FPS (137 m/s): 3.3 J
+      - 0.4g  6mm pellet at 600 FPS (183 m/s): 6.7 J
+  - Safety
+    * energy levels
+      - safe:   <2 J
+      - strong: >2 J && <4 J
+      - unsafe: >4 J
+    * values in different regulations
+      - 1.35 J: penetrating wound
+      - 3.0-4.0 J: penetrating/leathal wound
+      - 2.0-3.0 J: penetration level
+    * human skin penetration (> 1/2 diameter of pellet)
+      - 162.1e^(-0.38sqrt(m))
+      - e.g., 0.2 g @ 136.7 m/s (448 FPS) -- possible with AEG
+  - Velocity Range
+    * 180-740 fps (55-226 m/s)
+  - Pellet Weights
+    * 0.2-0.49 g
+  - Rate of Fire
+    * HPA: 35-60 pellets/sec
+    * AEG: 100-1500 pellets/min
+  - Barrel Length
+    * 221-430 mm
+  - AEG Piston-Barrel Volume Ratio
+    * 2:1
+  - Typical AEG
+    * Velocity: 120 m/s (~400 fps)
+    * Energy @ Distance
+      - 1.4 J @  0 m
+      -   1 J @  5 m
+      - 0.6 J @ 10 m
+      - 0.3 J @ 20 m
+  - Ballistics
+    * velocity drops exponentially with distance (due to the quadratic drag)
+    * simple equation describes ideal (no hop-up, no wind) distance for given pellet diameter, weight, and speed
+      - e.g., 6mm 0.2g 120m/s 1.8m height: hits ground at 34m
 
 * Links
   - https://www.pololu.com/product/4036
   - https://www.pololu.com/product/4037
+  - https://en.wikipedia.org/wiki/Airsoft_pellets
+  - 
