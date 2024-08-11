@@ -14,7 +14,7 @@
 #define MAX_DUTY_CYCLE  99.9
 #define MIN_FREQ        500
 
-#define TRIGGER_TIME    ?  // 10 shots/sec = 100msec
+#define TRIGGER_TIME    150  // 7 shots/sec = 143msec
 
 
 RP2040_PWM *PWM_Instance;
@@ -90,11 +90,11 @@ void loop() {
   if (numShots > 0) {
     //// TODO make sure that the feeder motor is on
     digitalWrite(TRIG_PIN, HIGH);
+    delay(TRIGGER_TIME);
     numShots--;
   } else {
     //// TODO turn off feeder moter
     digitalWrite(TRIG_PIN, LOW);
-    numShots = 1;
   }
 
   if (dutyCycle > MIN_DUTY_CYCLE) {
