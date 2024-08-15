@@ -218,21 +218,25 @@ An automated turret
       - strong: >2 J && <4 J
       - unsafe: >4 J
     * values in different regulations
-      - 1.35 J: penetrating wound
+      -    1.35 J: penetrating wound
       - 3.0-4.0 J: penetrating/leathal wound
       - 2.0-3.0 J: penetration level
     * human skin penetration (> 1/2 diameter of pellet)
       - 162.1e^(-0.38sqrt(m))
       - e.g., 0.2 g @ 136.7 m/s (448 FPS) -- possible with AEG
   - Velocity Range
-    * 180-740 fps (55-226 m/s)
+    * AEG: 46-198 m/s (150-650 fps)
+    * HPA: 55-226 m/s (180-740 fps); dynamically variable
   - Pellet Weights
     * 0.2-0.49 g
-  - Rate of Fire
-    * HPA: 35-60 pellets/sec
-    * AEG: 100-1500 pellets/min
+  - Rate of Fire (estimated max rate)
+    * HPA: 2100-3600 pellets/min,   35-60 pellets/sec,  28.5-16.7 msec/pellet
+    * AEG:  100-1500 pellets/min, 1.67-25 pellets/sec, 598.8-40.0 msec/pellet
   - Barrel Length
     * 221-430 mm
+  - Distance between pellets in flight
+    * ?
+    * time through barrel: ?
   - AEG Piston-Barrel Volume Ratio
     * 2:1
   - Typical AEG
