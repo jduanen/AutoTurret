@@ -4,13 +4,10 @@
  * 
  ******************************************************************************/
 
-//// TODO figure out if I should ditch the PWM and just do 100%/0%
-
-#include <TaskScheduler.h>
 #include <RP2040_PWM.h>
+#include <cppQueue.h>
 
 #include <OnBoardLED.h>
-#include "shotTest.h"
 
 
 #define PWM_PIN     D3    // EN
@@ -25,16 +22,27 @@
 #define MIN_FREQ        500
 
 #define FEEDER_DUTY_CYCLE MAX_DUTY_CYCLE
+#define MIN_FEEDER_DUTY_CYCLE 25.0
 
 #define TRIGGER_TIME    150  // 7 shots/sec = 143msec
 
-#define PRIME_TIME      750  // time to prime the feeder line (@ current speed)
+#define PRIME_PELLETS   32   // a function of the length of the feeder tube
+#define PRIME_TIME      750  // time to prime the feeder line (@ max speed) TMP TMP TMP
 
+#define CMD_Q_SIZE      8
+
+
+typedef enum CmdType_e {
+  FIRE,
+  CLEAR,
+  STOP
+} CmdType;
 
 typedef struct {
-  uint32_t    shots;
-  unsigned long duration;  // msec
-} ShotArgs_t;
+  CmdType cmd;
+  uint32_t numShots;
+  float shotRate;  // shots/sec
+} ShotCmd_t;
 
 
 float freq;
@@ -42,21 +50,18 @@ float dutyCycle;
 unsigned long lastTime;
 unsigned int numShots;
 bool primed;
+unsigned long feederTime;
+unsigned long triggerTime;
 unsigned long loopCnt = 0;
 
 RP2040_PWM *PWM_Instance;
 
 OnBoardLED *neoPix;
 
-Scheduler sched;
+cppQueue cmdQ(sizeof(ShotCmd_t), CMD_Q_SIZE, FIFO);
 
-volatile ShotArgs_t shot = {0, 0};
 
-Task feederStart(0, feederStart);
-Task feederStop(0, &feederStop);
-Task triggerStart(0, &triggerStart);
-Task triggerStop(0, &triggerStop);
-
+//// TODO make much of these functions inline/constexpr
 /*
 constexpr int foo = 1;
 constexpr void bar(int foo) {
@@ -65,88 +70,108 @@ constexpr void bar(int foo) {
 */
 
 void primeFeeder(int numPellets) {
-  /*
-  neoPix->setColor(CYAN);
+  Serial.println("p");
   PWM_Instance->setPWM(PWM_PIN, freq, FEEDER_DUTY_CYCLE);
   delay(PRIME_TIME);  //// FIXME compute delay based on number of pellets
   PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
-  */
 }
 
 void fire(int numPellets, float pelletRate) {
-  shot.shots = numPellets;
-  shot.duration = (numPellets / pelletRate) * 1000;
-  feederStart.enable();
+  if (primed == false) {
+    primeFeeder(PRIME_PELLETS);
+    primed = true;
+  }
+
+  //// TODO deal with min feed speed
+  uint32_t time = ((numPellets / pelletRate) * 1000.0);
+  startTrigger(numPellets, time);
 }
 
-void startFeeder() {
-  Serial.println("startFeeder");
-  feederStop.delay(500);  //// FIXME
+void stop() {
+  stopFeeder();
+  stopTrigger();
+}
+
+void startFeeder(uint32_t shots, uint32_t duration) {
+  //// TODO deal with min feeder speed
+  unsigned long now = millis();
+  feederTime = now + ((duration < MIN_FEEDER_DUTY_CYCLE) ? MIN_FEEDER_DUTY_CYCLE : duration);
+  PWM_Instance->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);  //// FIXME select proper speed
 }
 
 void stopFeeder() {
-  Serial.println("stopFeeder");
+  PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+  feederTime = 0;
 }
 
-void startTrigger() {
-  Serial.println("startTrigger");
-  triggerStop.delay(750);  //// FIXME
+void startTrigger(uint32_t shots, uint32_t duration) {
+  startFeeder(shots, duration);
+
+  //// TODO deal with min shot time
+  unsigned long now = millis();
+  triggerTime = now + duration;
+  digitalWrite(TRIG_PIN, HIGH);
 }
 
 void stopTrigger() {
-  Serial.println("stopTrigger");
+  digitalWrite(TRIG_PIN, LOW);
+  triggerTime = 0;
+  stopFeeder();
 }
 
-void getInput() {
+// try to unjam the feeder by going back and forth a bit
+void clearFeeder() {
+  PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+  digitalWrite(_SLEEP_PIN, LOW);
+  delay(5);
+  digitalWrite(_SLEEP_PIN, HIGH);
+
+  digitalWrite(DIR_PIN, LOW);
+  PWM_Instance->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
+  delay(250);  //// TODO tune this value
+  digitalWrite(DIR_PIN, HIGH);
+  delay(250);  //// TODO tune this value
+  PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+}
+
+void getInput(cppQueue *qPtr) {
   if (Serial.available()) {
-    byte cmd = Serial.peek();
-    switch (cmd) {
+    ShotCmd_t cmd;
+    byte chr = Serial.peek();
+    switch (chr) {
     case 'C':
     case 'c':
-      // try to unjam the feeder by going back and forth a bit
-      PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
-      digitalWrite(_SLEEP_PIN, LOW);
-      delay(5);
-      digitalWrite(_SLEEP_PIN, HIGH);
-
-      digitalWrite(DIR_PIN, LOW);
-      PWM_Instance->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
-      delay(250);  //// TODO tune this value
-      digitalWrite(DIR_PIN, HIGH);
-      delay(250);  //// TODO tune this value
-      PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
-  
-      Serial.println("Clear");
+      cmd.cmd = CLEAR;
+      qPtr->push(&cmd);
       break;
-    case 'd':
-      dutyCycle = Serial.parseFloat();
-      if (dutyCycle < MIN_DUTY_CYCLE) {
-        dutyCycle = 0.0;
-      } else if (dutyCycle >= 100.0) {
-        dutyCycle = MAX_DUTY_CYCLE;
-      }
-      Serial.print("Speed: "); Serial.println(dutyCycle);
-      break;
-    case 'n':
-      numShots = Serial.parseInt();
-      Serial.print(numShots);Serial.println(" Shots");
+    case 'f':
+      Serial.print("Fire: ");
+      cmd.cmd = FIRE;
+      //// FIXME get args from console input
+      cmd.numShots = Serial.parseFloat();
+      cmd.shotRate = Serial.parseInt();
+      Serial.print(cmd.numShots);Serial.print(", ");Serial.println(cmd.shotRate);
+      qPtr->push(&cmd);
       break;
     case 'o':
-      numShots = 0xFFFFFFFF;
       Serial.println("Continuous");
+      //// FIXME figure this one out
+      cmd.cmd = FIRE;
+      cmd.numShots = 1000000;
+      cmd.shotRate = 5.0;  //// TODO figure out appropriate rate
+      qPtr->push(&cmd);
       break;
     case 's':
-      numShots = 1;
       Serial.println("Single Shot");
-      break;
-    case 'x':
-      Serial.println("Fire");
-      fire(1, 100);   //// FIXME
+      cmd.cmd = FIRE;
+      cmd.numShots = 1;
+      cmd.shotRate = 1.0;  //// TODO figure out appropriate rate
+      qPtr->push(&cmd);
       break;
     default:
-      numShots = 0;
       Serial.println("Stop Shooting");
-      break;
+      cmd.cmd = STOP;
+      qPtr->push(&cmd);
     }
 
     // flush the input
@@ -166,6 +191,8 @@ void setup() {
   lastTime = millis();
   numShots = 0;
   primed = false;
+  feederTime = 0;
+  triggerTime = 0;
 
   // set up feeder motor controller
   pinMode(DIR_PIN, OUTPUT);
@@ -186,19 +213,65 @@ void setup() {
   neoPix = new OnBoardLED(NEOPIXEL_POWER, PIN_NEOPIXEL);
   neoPix->setColor(BLACK);
 
-  sched.init();
-  sched.addTask(feederStart);
-  sched.addTask(feederStop);
-  sched.addTask(triggerStart);
-  sched.addTask(triggerStop);
-
   Serial.println("START");
 }
 
-//// FIXME make feeder on/off be independent of trigger pull times
-//// FIXME deal with huge lag in reacting to inputs
 void loop() {
-  getInput();
+  getInput(&cmdQ);
+  if (cmdQ.isEmpty() == false) {
+    ShotCmd_t cmd;
+    cmdQ.pop(&cmd);
+    switch (cmd.cmd) {
+    case CLEAR:
+      clearFeeder();
+      break;
+    case FIRE:
+      fire(cmd.numShots, cmd.shotRate);
+      break;
+    case STOP:
+      stop();
+    default:
+      Serial.print("ERROR: invalid command type - "); Serial.println(cmd.cmd);
+      break;
+    }
+  }
+
+  unsigned long now = millis();  // N.B. rolls over after ~50 days of uptime
+  //// TODO deal with rollover
+  if (feederTime && (feederTime <= now)) {
+    stopFeeder();
+  }
+  if (triggerTime && (triggerTime <= now)) {
+    stopTrigger();
+  }
+
+  if (digitalRead(_FAULT_PIN) == 0) {
+    if (dutyCycle > MIN_DUTY_CYCLE) {
+      neoPix->setColor(RED);
+      digitalWrite(_SLEEP_PIN, LOW);
+      delay(5);
+      digitalWrite(_SLEEP_PIN, HIGH);
+    } else {
+      neoPix->setColor(MAGENTA);
+    }
+  } else {
+    neoPix->setColor(BLACK);
+  }
+
+  loopCnt++;
+}
+
+    /*
+    case 'd':
+      dutyCycle = Serial.parseFloat();
+      if (dutyCycle < MIN_DUTY_CYCLE) {
+        dutyCycle = 0.0;
+      } else if (dutyCycle >= 100.0) {
+        dutyCycle = MAX_DUTY_CYCLE;
+      }
+      Serial.print("Speed: "); Serial.println(dutyCycle);
+      break;
+    */
 
   /*
   if (numShots > 0) {
@@ -222,21 +295,3 @@ void loop() {
     neoPix->setColor(BLACK);
   }
   */
-
-  if (digitalRead(_FAULT_PIN) == 0) {
-    if (dutyCycle > MIN_DUTY_CYCLE) {
-      neoPix->setColor(RED);
-      digitalWrite(_SLEEP_PIN, LOW);
-      delay(5);
-      digitalWrite(_SLEEP_PIN, HIGH);
-    } else {
-      neoPix->setColor(MAGENTA);
-    }
-  } else {
-    neoPix->setColor(BLACK);
-  }
-
-  sched.execute();
-
-  loopCnt++;
-}
