@@ -44,10 +44,20 @@ An automated turret
   - Telemetry
     * ** TBD **
   - Airsoft Sensors
-    * Cronograph
-      - ** TBD **
+    * Chronograph
+      - add pair of IR emitter/receiver pairs to tube added to end of barrel
+        * make tube slightly larger than bore size
+        * place emitter and receiver on opposite sides of the tube
+        * separate emitter/receiver pairs by 50mm or 100mm
+          - depends on achievable accuracy
+        * ?
+      - ?
     * Pellet Supply
-      - ** TBD **
+      - <reference to model source>
+        * <describe the mods I made>
+        * <add cad files>
+      - <flexible feeder tube>
+      - 
     * Air Supply
       - ** TBD **
     * Orientation
@@ -55,6 +65,38 @@ An automated turret
       - ** TBD **
 
 ## Notes
+
+* Test Environment
+  - start with cheap AEG engine
+    * remove from original plastic
+    * design and print a new enclosure
+  - create a test target
+    * use 70mm cardboard shipping tube
+    * add high-density foam with 45 degree face at far end
+    * create a "plug" around the AEG barrel with high-density foam
+
+* MOSFET AEG Trigger Circuit
+  - put decoupling cap and back-EMF diode on AEG's DC motor
+    * put them right on the motor terminals (avoid lead inductance)
+  - MOSFET circuit
+    * DC Motor connects between voltage source and Drain
+    * Source connects to ground
+    * pull-up resistor from Gate to motor voltage source to ensure it's turned on when trigger signal is high
+    * maybe use the 20V supply voltage to run the AEG motor
+      - if so, need to recalibrate firing rate
+  - Motor supply must support high in-rush and high sustained current
+  - use IRF540 because it has a lower Vth than the IRF520
+  - 3.3V still isn't enough to fully saturate the IRF540
+    * need to drive Gate to higher voltage (around 4.6V)
+    * have to drive FET into saturation/low R
+  - use 2N3904 to act as a level shifter from 3.3V input from controller to >5V output to Gate
+  - RP2040 puts all GPIOs into HiZ state while loading (booting?)
+    * need to make sure that the trigger doesn't activate during load/reboot
+    * use pull-down resistor on input to level shifting transistor
+  - 
+
+* Chronograph
+  - use ATmega2560, ATmega32U4, ATmega1284P, 
 
 * Pololu DRV8876 board
   - one motor channel
@@ -75,10 +117,19 @@ An automated turret
   - PWM input: <=100 kHz
   - pins
     * Current Sense (CS): analog output, 2500 mV/A
-    * Sleep (/SLEEP): starts up in sleep mode, logic high input brings out of sleep
+      - really noisy and have to either avg/filter or sample fast and avg
+      --> not using this
+    * Sleep (/SLEEP)
+      - active low, put device to low-power sleep
+      - starts up in sleep mode, logic high input brings out of sleep
+      - takes Tsleep (1ms) to take effect
+      - reads strapping pin states when in sleep mode
+        * takes effect when coming out of sleep mode (rising edge of /SLEEP)
     * Motor Power (VIN): 4.5-37 V motor voltage input, reverse-voltage protected [use this]
     * Motor Voltage (VM): motor voltage after reverse-voltage protection
       - can use this to supply reverse-voltage protected voltage
+      - need put decoupling caps on this
+        --> already on the Pololu board
     * Operating Mode (PMODE):
       - 0/low: Phase/Enable mode, EN=PWM
         * PH=1: forward/brake at PWM% speed
@@ -89,8 +140,46 @@ An automated turret
             * 50%: stop
             * 100%: full speed in the other direction
       - can do more advanced operations, but I'm using this mode
+        * allows me to jog the feeder back and forth to help clear jams
     * OUT1/OUT2: goes to motor
-  - 
+    * Current Regulation and Protection Mode (IMODE)
+      - four possible modes, based on state of pin
+        * GND: fixed off-time, automatic retry, overcurrent only
+        * 20K to GND: cycle-by-cycle, automatic retry, both current chopping and overcurrent
+        * 62K to GND: cycle-by-cycle, outputs latched off, both current chopping and overcurrent
+        * HiZ: fixed off-time, outputs latched off, overcurrent only
+      - Overcurrent
+        * disables outputs and enters a brake state for Toff time
+          - in brake state both low-side MOSFETs are turned on
+        * if EN or PH pins change during Toff:
+          - exits Break state, resets and follows inputs again
+        * Toff: 25 usec
+        * Tdelay: 1.6 usec
+      - Fixed Off-Time Current Chopping
+        * can use 100% duty cycle in this mode
+      - Cycle-by-Cycle Current Chopping
+        * can't use 100% duty cycle in this mode
+          - needs a new control input edge to exist Break state
+        * pulls /FAULT pin low when chopping
+      - Auto-Retry mode
+        * if over-current for more than Tocp (3 usec)
+          - disables MOSFETs and drives /FAULT low for Tretry (2 msec)
+          - resets based on control inputs
+            * resumes normal operation, repeats if still over-current
+      - Latched-Off mode
+        * disables MOSFETs, drives /FAULT low until reset
+          - resets by /SLEEP pin or removing power (via VM)
+    * Fault (/FAULT)
+      - active low (open-drain), indicates over-current/-temperature
+      - needs pull-up resistor (or PULLUP pin mode in Arduino)
+        * 10K pullup works better than internal pull-up mode [don't know why]
+      - just an indication, doesn't change operation
+      - fault indicates current chopping if driving motor forward/reverse
+        * otherwise its a device fault
+        * if /FAULT=LOW and control inputs selecting hi-Z or slow-decay
+          - then it's a device fault
+  - need add a heat-sink as it gets hot
+  - Tsleep: time to sleep from when nSleep=LOW
 
 * Xiao RP2040
   - A0 values connected to CS (avg over 10 samples)
