@@ -1,3 +1,5 @@
+//// TODO figure out if I should ditch the PWM and just do 100%/0%
+
 #include "RP2040_PWM.h"
 
 #include <OnBoardLED.h>
@@ -45,14 +47,17 @@ void checkInput() {
     case 'C':
     case 'c':
       // try to unjam the feeder by going back and forth a bit
+      PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
       digitalWrite(_SLEEP_PIN, LOW);
-      delay(250);  //// TODO tune this value
+      delay(5);
       digitalWrite(_SLEEP_PIN, HIGH);
 
       digitalWrite(DIR_PIN, LOW);
-      delay(500);  //// TODO make this value a function of current speed
+      PWM_Instance->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
+      delay(250);  //// TODO tune this value
       digitalWrite(DIR_PIN, HIGH);
-      delay(500);  //// TODO make this value a function of current speed
+      delay(250);  //// TODO tune this value
+      PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
   
       Serial.println("Clear");
       break;
@@ -63,7 +68,6 @@ void checkInput() {
       } else if (dutyCycle >= 100.0) {
         dutyCycle = MAX_DUTY_CYCLE;
       }
-      PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
       Serial.print("Speed: "); Serial.println(dutyCycle);
       break;
     case 'n':
@@ -104,11 +108,12 @@ void setup() {
 
   // set up feeder motor controller
   pinMode(DIR_PIN, OUTPUT);
-  pinMode(_SLEEP_PIN, OUTPUT);
-  pinMode(CS_PIN, INPUT);  // ANALOG
-  pinMode(_FAULT_PIN, INPUT_PULLUP);
-  digitalWrite(_SLEEP_PIN, LOW);
   digitalWrite(DIR_PIN, HIGH);
+  pinMode(_SLEEP_PIN, OUTPUT);
+  digitalWrite(_SLEEP_PIN, LOW);
+  pinMode(CS_PIN, INPUT);  // ANALOG
+  pinMode(_FAULT_PIN, INPUT); //, INPUT_PULLUP);
+  digitalWrite(_SLEEP_PIN, HIGH);
 
   PWM_Instance = new RP2040_PWM(PWM_PIN, freq, 0.0);
 
@@ -123,19 +128,22 @@ void setup() {
   Serial.println("START");
 }
 
+//// FIXME make feeder on/off be independent of trigger pull times
+//// FIXME deal with huge lag in reacting to inputs
 void loop() {
   checkInput();
 
   if (numShots > 0) {
     if (primed == false) {
-      PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+      PWM_Instance->setPWM(PWM_PIN, freq, FEEDER_DUTY_CYCLE);
       Serial.println(">");
-      Serial.print(dutyCycle);
       delay(PRIME_TIME);
+      PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
       primed = true;
     }
-    PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);  // start feeder
     digitalWrite(TRIG_PIN, HIGH);  // pull trigger
+    neoPix->setColor(GREEN);
+    PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);  // start feeder
     delay(TRIGGER_TIME);
     numShots--;
     if (numShots > 0) {
@@ -146,13 +154,17 @@ void loop() {
   } else {
     PWM_Instance->setPWM(PWM_PIN, freq, 0.0);  // stop feeder
     digitalWrite(TRIG_PIN, LOW);  // release trigger
+    neoPix->setColor(BLACK);
   }
 
-  if (dutyCycle > MIN_DUTY_CYCLE) {
-    if (digitalRead(_FAULT_PIN) == 0) {
+  if (digitalRead(_FAULT_PIN) == 0) {
+    if (dutyCycle > MIN_DUTY_CYCLE) {
       neoPix->setColor(RED);
+      digitalWrite(_SLEEP_PIN, LOW);
+      delay(5);
+      digitalWrite(_SLEEP_PIN, HIGH);
     } else {
-      neoPix->setColor(GREEN);
+      neoPix->setColor(MAGENTA);
     }
   } else {
     neoPix->setColor(BLACK);
