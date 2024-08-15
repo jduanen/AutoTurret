@@ -1,8 +1,16 @@
+/******************************************************************************
+ * 
+ * AutoTurret test program
+ * 
+ ******************************************************************************/
+
 //// TODO figure out if I should ditch the PWM and just do 100%/0%
 
-#include "RP2040_PWM.h"
+#include <TaskScheduler.h>
+#include <RP2040_PWM.h>
 
 #include <OnBoardLED.h>
+#include "shotTest.h"
 
 
 #define PWM_PIN     D3    // EN
@@ -23,6 +31,12 @@
 #define PRIME_TIME      750  // time to prime the feeder line (@ current speed)
 
 
+typedef struct {
+  uint32_t    shots;
+  unsigned long duration;  // msec
+} ShotArgs_t;
+
+
 float freq;
 float dutyCycle;
 unsigned long lastTime;
@@ -31,7 +45,17 @@ bool primed;
 unsigned long loopCnt = 0;
 
 RP2040_PWM *PWM_Instance;
+
 OnBoardLED *neoPix;
+
+Scheduler sched;
+
+volatile ShotArgs_t shot = {0, 0};
+
+Task feederStart(0, feederStart);
+Task feederStop(0, &feederStop);
+Task triggerStart(0, &triggerStart);
+Task triggerStop(0, &triggerStop);
 
 /*
 constexpr int foo = 1;
@@ -40,7 +64,40 @@ constexpr void bar(int foo) {
 }
 */
 
-void checkInput() {
+void primeFeeder(int numPellets) {
+  /*
+  neoPix->setColor(CYAN);
+  PWM_Instance->setPWM(PWM_PIN, freq, FEEDER_DUTY_CYCLE);
+  delay(PRIME_TIME);  //// FIXME compute delay based on number of pellets
+  PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+  */
+}
+
+void fire(int numPellets, float pelletRate) {
+  shot.shots = numPellets;
+  shot.duration = (numPellets / pelletRate) * 1000;
+  feederStart.enable();
+}
+
+void startFeeder() {
+  Serial.println("startFeeder");
+  feederStop.delay(500);  //// FIXME
+}
+
+void stopFeeder() {
+  Serial.println("stopFeeder");
+}
+
+void startTrigger() {
+  Serial.println("startTrigger");
+  triggerStop.delay(750);  //// FIXME
+}
+
+void stopTrigger() {
+  Serial.println("stopTrigger");
+}
+
+void getInput() {
   if (Serial.available()) {
     byte cmd = Serial.peek();
     switch (cmd) {
@@ -81,6 +138,10 @@ void checkInput() {
     case 's':
       numShots = 1;
       Serial.println("Single Shot");
+      break;
+    case 'x':
+      Serial.println("Fire");
+      fire(1, 100);   //// FIXME
       break;
     default:
       numShots = 0;
@@ -125,20 +186,24 @@ void setup() {
   neoPix = new OnBoardLED(NEOPIXEL_POWER, PIN_NEOPIXEL);
   neoPix->setColor(BLACK);
 
+  sched.init();
+  sched.addTask(feederStart);
+  sched.addTask(feederStop);
+  sched.addTask(triggerStart);
+  sched.addTask(triggerStop);
+
   Serial.println("START");
 }
 
 //// FIXME make feeder on/off be independent of trigger pull times
 //// FIXME deal with huge lag in reacting to inputs
 void loop() {
-  checkInput();
+  getInput();
 
+  /*
   if (numShots > 0) {
     if (primed == false) {
-      PWM_Instance->setPWM(PWM_PIN, freq, FEEDER_DUTY_CYCLE);
-      Serial.println(">");
-      delay(PRIME_TIME);
-      PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+      primeFeeder(PRIME_PELLETS);
       primed = true;
     }
     digitalWrite(TRIG_PIN, HIGH);  // pull trigger
@@ -156,6 +221,7 @@ void loop() {
     digitalWrite(TRIG_PIN, LOW);  // release trigger
     neoPix->setColor(BLACK);
   }
+  */
 
   if (digitalRead(_FAULT_PIN) == 0) {
     if (dutyCycle > MIN_DUTY_CYCLE) {
@@ -169,6 +235,8 @@ void loop() {
   } else {
     neoPix->setColor(BLACK);
   }
+
+  sched.execute();
 
   loopCnt++;
 }
