@@ -18,17 +18,17 @@
 #define TRIG_PIN        D9
 
 #define MIN_FREQ        500   // TODO fix this
-#define MAX_FREQ        1000  // TODO fix this
+#define MAX_FREQ        5000  // TODO fix this
 
 #define MIN_SHOT_RATE   1000  // 1 shot/sec
 #define MAX_SHOT_RATE   150   // 7 shots/sec = 143msec
 
-#define MIN_DUTY_CYCLE  11.0
-#define MAX_DUTY_CYCLE  99.9
-#define MIN_FEEDER_TIME 1000  // msec
+#define MIN_DUTY_CYCLE  30.0  // can't feed reliably below 30%
+#define MAX_DUTY_CYCLE  99.99 // PWM not DC, so can't be 100%
+#define MIN_FEED_RATE   15.4  // pellets/sec
+#define MAX_FEED_RATE   55.6  // pellets/sec
 
-#define PRIME_PELLETS   32   // a function of the length of the feeder tube
-//#define PRIME_TIME      750  // time to prime the feeder line (@ max speed) TMP TMP TMP
+#define PRIME_PELLETS   28  // a function of the length of the feeder tube
 
 #define CMD_Q_SIZE      8
 
@@ -63,25 +63,32 @@ cppQueue cmdQ(sizeof(ShotCmd_t), CMD_Q_SIZE, FIFO);
 
 
 //// TODO make much of these functions inline/constexpr
-/*
-constexpr int foo = 1;
-constexpr void bar(int foo) {
-  return;
-}
-*/
 
-// normalize feeder duty cycle value
+constexpr float rateToDutyCycle(float shotRate) {
+  return (1.742 * (shotRate * 1.81));
+}
+
+constexpr float dutyCycleToRate(float dutyCycle) {
+  return ((0.574 * dutyCycle) - 1.81);
+}
+
 constexpr float normDutyCycle(float dutyCycle) {
   dutyCycle = (((dutyCycle > 0) && (dutyCycle < MIN_DUTY_CYCLE)) ? MIN_DUTY_CYCLE : dutyCycle);
   dutyCycle = ((dutyCycle > MAX_DUTY_CYCLE) ? MAX_DUTY_CYCLE : dutyCycle);
-  return dutyCycle;
+  return dutyCycle;  // % of full motor speed
+}
+
+constexpr float normShotRate(float shotRate) {
+  shotRate = ((shotRate < MIN_SHOT_RATE) ? MIN_SHOT_RATE : shotRate);
+  shotRate = ((shotRate > MAX_SHOT_RATE) ? MAX_SHOT_RATE : shotRate);
+  return shotRate;  // shots/sec
 }
 
 void primeFeeder(int numPellets) {
-  Serial.print("p");Serial.println(numPellets);
+  Serial.print("p: ");Serial.print(numPellets);Serial.print(", ");
   PWM_Instance->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
-//  delay(numPellets * <MIN_MSEC_PER_PELLET>);
-  delay(3000);
+  delay(numPellets * MAX_FEED_RATE);
+  Serial.println(numPellets * MAX_FEED_RATE);
   PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
 }
 
@@ -90,20 +97,12 @@ void fire(int numShots, float shotRate) {
     primeFeeder(PRIME_PELLETS);
     primed = true;
   }
-
-  shotRate = ((shotRate < MIN_SHOT_RATE) ? MIN_SHOT_RATE : shotRate);
-  shotRate = ((shotRate > MAX_SHOT_RATE) ? MAX_SHOT_RATE : shotRate);
-
-  uint32_t duration = ((numShots / shotRate) * 1000.0);
-  //// TODO deal with min feed speed
-//  duration = ((duration < MIN_SHOT_TIME) ? MIN_SHOT_TIME : duration);
   startTrigger(numShots, duration);
 }
 
 void startFeeder(uint32_t shots, uint32_t duration) {
   unsigned long now = millis();
   //// FIXME select proper speed to do that many shots in the given time
-//  float dutyCycle = normDutyCycle(????);
   float dutyCycle = MAX_DUTY_CYCLE;
   PWM_Instance->setPWM(PWM_PIN, freq, normDutyCycle(dutyCycle));
 }
@@ -156,7 +155,6 @@ void getInput(cppQueue *qPtr) {
     case 'f':
       Serial.print("Fire: ");
       cmd.cmd = FIRE;
-      //// FIXME get args from console input
       cmd.numShots = Serial.parseFloat();
       cmd.data.shotRate = Serial.parseInt();
       Serial.print(cmd.numShots);Serial.print(", ");Serial.println(cmd.data.shotRate);Serial.flush();
@@ -254,7 +252,7 @@ void loop() {
   unsigned long now = millis();  // N.B. rolls over after ~50 days of uptime
   //// TODO deal with rollover
   if (triggerTime && (triggerTime <= now)) {
-    Serial.print(now);Serial.println(triggerTime);
+    Serial.print(now);Serial.print(", ");Serial.println(triggerTime);
     stopTrigger();
   }
 
