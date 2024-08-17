@@ -20,15 +20,23 @@
 #define MIN_FREQ        500   // TODO fix this
 #define MAX_FREQ        5000  // TODO fix this
 
-#define MIN_SHOT_RATE   1000  // 1 shot/sec
-#define MAX_SHOT_RATE   150   // 7 shots/sec = 143msec
+// N.B. Shot Interval is in units of msec
+#define MIN_SHOT_INTERVAL   150   // a function of the AEG and it's power supply
+#define MAX_SHOT_INTERVAL   1000  // arbitrary value
 
+// N.B. Shot Rate is shots/sec
+#define MIN_SHOT_RATE       (1000.0 / MAX_SHOT_INTERVAL)  // 1 shot/sec
+#define MAX_SHOT_RATE       (1000.0 / MIN_SHOT_INTERVAL)  // 6.67 shots/sec
+
+// N.B. Duty Cycle is in % of motor speed
 #define MIN_DUTY_CYCLE  30.0  // can't feed reliably below 30%
 #define MAX_DUTY_CYCLE  99.99 // PWM not DC, so can't be 100%
+
+// N.B. Feed Rate is in pellets/sec
 #define MIN_FEED_RATE   15.4  // pellets/sec
 #define MAX_FEED_RATE   55.6  // pellets/sec
 
-#define PRIME_PELLETS   28  // a function of the length of the feeder tube
+#define PRIME_PELLETS   32    // a function of the length of the feeder tube
 
 #define CMD_Q_SIZE      8
 
@@ -45,14 +53,15 @@ typedef struct {
   CmdType cmd;
   uint32_t numShots;
   union {
-    float shotRate;  // shots/sec
-    float dutyCycle;
+    float shotRate;   // shots/sec
+    float dutyCycle;  // %
   } data;
 } ShotCmd_t;
 
 
 bool primed;
 float freq;
+unsigned long feederTime;
 unsigned long triggerTime;
 
 RP2040_PWM *PWM_Instance;
@@ -73,18 +82,45 @@ constexpr float dutyCycleToRate(float dutyCycle) {
 }
 
 constexpr float normDutyCycle(float dutyCycle) {
-  dutyCycle = (((dutyCycle > 0) && (dutyCycle < MIN_DUTY_CYCLE)) ? MIN_DUTY_CYCLE : dutyCycle);
-  dutyCycle = ((dutyCycle > MAX_DUTY_CYCLE) ? MAX_DUTY_CYCLE : dutyCycle);
-  return dutyCycle;  // % of full motor speed
+  float dc;
+
+  dc = (((dutyCycle > 0) && (dutyCycle < MIN_DUTY_CYCLE)) ? MIN_DUTY_CYCLE : dutyCycle);
+  dc = ((dc > MAX_DUTY_CYCLE) ? MAX_DUTY_CYCLE : dc);
+
+  if (dc != dutyCycle) {
+    Serial.println("INFO: duty cycle normalized");
+  }
+
+  return dc;  // % of full motor speed
+}
+
+constexpr uint32_t normNumShots(uint32_t numShots) {
+  uint32_t shots;
+
+  shots = ((numShots < MIN_NUM_SHOTS) ? MIN_NUM_SHOTS : numShots);
+  shots = ((shots > MAX_NUM_SHOTS) ? MAX_NUM_SHOTS : shots);
+
+  if (shots != numShots) {
+    Serial.println("INFO: number of shots normalized");
+  }
+
+  return shots;
 }
 
 constexpr float normShotRate(float shotRate) {
-  shotRate = ((shotRate < MIN_SHOT_RATE) ? MIN_SHOT_RATE : shotRate);
-  shotRate = ((shotRate > MAX_SHOT_RATE) ? MAX_SHOT_RATE : shotRate);
+  float rate;
+
+  rate = ((shotRate < MIN_SHOT_RATE) ? MIN_SHOT_RATE : shotRate);
+  rate = ((rate > MAX_SHOT_RATE) ? MAX_SHOT_RATE : rate);
+
+  if (rate != shotRate) {
+    Serial.println("INFO: shot rate normalized");
+  }
+
   return shotRate;  // shots/sec
 }
 
-void primeFeeder(int numPellets) {
+void primeFeeder(uint32_t numPellets) {
   Serial.print("p: ");Serial.print(numPellets);Serial.print(", ");
   PWM_Instance->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
   delay(numPellets * MAX_FEED_RATE);
@@ -92,31 +128,47 @@ void primeFeeder(int numPellets) {
   PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
 }
 
-void fire(int numShots, float shotRate) {
+void fire(uint32_t numShots, float shotRate) {
+  uint32_t duration;
+
+  numShots = normNumShots(numShots);
+  shotRate = normShotRate(shotRate);
+
   if (primed == false) {
     primeFeeder(PRIME_PELLETS);
     primed = true;
   }
-  startTrigger(numShots, duration);
+
+  startTrigger(numShots, shotRate);
 }
 
-void startFeeder(uint32_t shots, uint32_t duration) {
+void startFeeder(uint32_t pellets, float shotRate) {
   unsigned long now = millis();
+
   //// FIXME select proper speed to do that many shots in the given time
+  uint32_t duration = ?(shotRate);
+  duration = ?
+
   float dutyCycle = MAX_DUTY_CYCLE;
-  PWM_Instance->setPWM(PWM_PIN, freq, normDutyCycle(dutyCycle));
+//  dutyCycle = rateToDutyCycle(shotRate);
+  dutyCycle = normDutyCycle(dutyCycle);
+  PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+
+  feederTime = now + duration;
 }
 
 void stopFeeder() {
   Serial.println("stopFeeder");
   PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+  feederTime = 0;
 }
 
-void startTrigger(uint32_t shots, uint32_t duration) {
-  startFeeder(shots, duration);
+void startTrigger(uint32_t numShots, float shotRate) {
+  startFeeder(numShots, shotRate);
 
   //// TODO deal with min shot time
   unsigned long now = millis();
+  uint32_t duration = ((numShots * 1000.0) / shotRate);  // msec
   triggerTime = now + duration;
   digitalWrite(TRIG_PIN, HIGH);
 }
