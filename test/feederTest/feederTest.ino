@@ -18,41 +18,44 @@ RP2040_PWM *PWM_Instance;
 OnBoardLED *neoPix;
 
 float freq = 2000;
-float dutyCycle = 50;
+float dutyCycle = 0.0;
 unsigned long lastTime = millis();
 unsigned long loopCnt = 0;
 float currentSense = 0;
 
 
+// try to unjam the feeder by going back and forth a bit
+void clearFeeder() {
+  PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+  digitalWrite(_SLEEP_PIN, LOW);
+  delay(5);
+  digitalWrite(_SLEEP_PIN, HIGH);
+
+  digitalWrite(DIR_PIN, LOW);
+  PWM_Instance->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
+  delay(250);  //// TODO tune this value
+  digitalWrite(DIR_PIN, HIGH);
+  delay(250);  //// TODO tune this value
+  PWM_Instance->setPWM(PWM_PIN, freq, 0.0);
+}
+
 void checkInput() {
+  byte cmd;
+  uint32_t duration;
+
   if (Serial.available()) {
-    byte cmd = Serial.peek();
+    cmd = Serial.peek();
     switch (cmd) {
     case 'C':
     case 'c':
-      // try to unjam the feeder by going back and forth a bit
-      digitalWrite(_SLEEP_PIN, LOW);
-      delay(250);  //// TODO tune this value
-      digitalWrite(_SLEEP_PIN, HIGH);
-
-      digitalWrite(DIR_PIN, LOW);
-      delay(500);  //// TODO make this value a function of current speed
-      digitalWrite(DIR_PIN, HIGH);
-      delay(500);  //// TODO make this value a function of current speed
-  
       Serial.println("Clear");
+      clearFeeder();
       break;
     case 'S':
-      // start
+      // start max speed
       dutyCycle = MAX_DUTY_CYCLE;
       PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
       Serial.println("Start");
-      break;
-    case 's':
-      // stop
-      dutyCycle = 0.0;
-      PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
-      Serial.println("Stop");
       break;
     case 'f':
       // set frequency
@@ -61,7 +64,7 @@ void checkInput() {
       PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
       Serial.print("Freq: "); Serial.println(freq);
       break;
-    default:
+
       dutyCycle = Serial.parseFloat();
       if (dutyCycle < MIN_DUTY_CYCLE) {
         dutyCycle = 0.0;
@@ -70,6 +73,29 @@ void checkInput() {
       }
       PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
       Serial.print("Speed: "); Serial.println(dutyCycle);
+      break;
+    case 'x':
+      dutyCycle = Serial.parseFloat();
+      if (dutyCycle < MIN_DUTY_CYCLE) {
+        dutyCycle = 0.0;
+      } else if (dutyCycle >= 100.0) {
+        dutyCycle = MAX_DUTY_CYCLE;
+      }
+      duration = Serial.parseInt();
+
+      Serial.print("Duty Cycle: "); Serial.print(dutyCycle);
+      Serial.print(", Duration: "); Serial.print(duration);
+      Serial.println(" (msec)");
+      PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+      delay(duration);
+      PWM_Instance->setPWM(PWM_PIN, freq, 0);
+      break;
+    default:
+      // stop
+      dutyCycle = 0.0;
+      PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
+      Serial.println("Stop");
+      break;
     }
 
     // flush the input
