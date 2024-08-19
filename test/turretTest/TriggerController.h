@@ -32,37 +32,52 @@ constexpr float normShotRate(float shotRate) {
 
 class TriggerController : public TimedController {
 public:
-	TriggerController(BurstState_t *burstPtr) {
+	TriggerController() {
 		Serial.println("TriggerController");
     	pinMode(TRIG_PIN, OUTPUT);
 	    digitalWrite(TRIG_PIN, LOW);
+	    _active = false;
+	};
+
+	bool start() {
+	    Serial.println("Trigger Start");
+	    if (_active) {
+	    	Serial.println("ERROR: already active, can't start");
+	    	return true;
+	    }
+	    digitalWrite(TRIG_PIN, HIGH);
+	    _active = true;
+	    return false;
+	};
+
+	bool stop() {
+	    Serial.println("Trigger Stop");
+	    digitalWrite(TRIG_PIN, LOW);
+	    _active = false;
+	    return false;
 	};
 
 	bool exec() {
 		Serial.println("Trigger Exec");
-		return true;
+		if (!_active) {
+			return false;
+		}
+		//// TODO
+		return false;
 	};
 
-	void start(uint32_t numShots, float shotRate) {
-	    Serial.println("Trigger Start");
-	    startFeeder(numShots, shotRate);
+	bool _burstHandler() {
+	    Serial.println("Trigger Burst Handler");
+/*
 //            numShots = normNumShots(numShots);
 //            shotRate = normShotRate(shotRate);
 	    //// TODO deal with min shot time
-	    unsigned long now = millis();
 	    uint32_t duration = ((numShots * 1000.0) / shotRate);  // msec
-	    triggerTime = now + duration;
+	    triggerTime = millis() + duration;
 	    digitalWrite(TRIG_PIN, HIGH);
+	    _triggerOn = true;
+*/
+	    return false;
 	};
-
-	void stop() {
-	    Serial.println("Trigger Stop");
-	    digitalWrite(TRIG_PIN, LOW);
-	    triggerTime = 0;
-	    stopFeeder();
-	};
-
-	bool isOn() { return _triggerOn; };
 protected:
-	bool _tiggerOn = false;
 };

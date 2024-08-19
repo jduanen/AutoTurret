@@ -97,13 +97,48 @@ typedef struct {
 
 class TimedController {
 public:
-	bool start();
-	bool exec();
-	void start();
-	void stop();
-	bool isOn() { return _triggerOn; };
+	virtual bool exec() = 0;
+	virtual bool start() = 0;
+	virtual bool stop() = 0;
+	bool burst(uint32_t numberOfShots, float shotRate) {
+	    if (_active) {
+	    	Serial.println("ERROR: already active, can't burst");
+	    	return true;
+	    }
+
+	    _numberOfShots = numberOfShots;
+	    _burstRate = (shotRate * 1000.0);
+	    _burstDuration = ((numberOfShots * 1000.0) / burstRate);
+	    _shotInterval = (1000.00 / _burstRate);
+	    _burstStartTime = millis();
+	    _burstEndTime = (_burstStartTime + _burstDuration);
+	    _shotNumber = 0;
+
+	    Serial.print(_numberOfShots); Serial.print(", ");
+	    Serial.print(_burstRate); Serial.print(", ");
+	    Serial.print(_burstDuration); Serial.print(", ");
+	    Serial.print(_shotInterval); Serial.print(", ");
+	    Serial.print(_burstStartTime); Serial.print(", ");
+	    Serial.print(_burstEndTime); Serial.print(", ");
+	    Serial.println(_shotNumber);
+
+	    _active = true;
+	    return _burstHandler();
+	};
+	bool isActive() { return _active; };
 protected:
-	bool _triggerOn = false;
+	bool _active = false;
+
+	uint16_t _numberOfShots;	// (pellets)
+	float _burstRate;			// (pellets/sec)
+
+	uint32_t _burstDuration;	// (msec)
+	uint32_t _shotInterval;		// (msec)
+
+	unsigned long _burstStartTime;	// (msec)
+	unsigned long _burstEndTime;	// (msec)
+
+	uint16_t shotNumber;		// [0-numberOfShots]
 };
 
 #include "FeederController.h"

@@ -4,15 +4,9 @@
  * 
  ******************************************************************************/
 
-    case FEED:
-      dutyCycle = normDutyCycle(cmd.data.dutyCycle);
-      PWM_Instance->setPWM(PWM_PIN, freq, dutyCycle);
-      break;
-
-
 class FeederController : public TimedController {
 public:
-	FeederController(BurstState_t *burstPtr) {
+	FeederController() {
 		Serial.println("FeederController");
 		pinMode(DIR_PIN, OUTPUT);
 		digitalWrite(DIR_PIN, HIGH);
@@ -25,23 +19,67 @@ public:
 	    _pwm = new RP2040_PWM(PWM_PIN, freq, 0.0);
 	};
 
+	bool start() {
+	    Serial.println("Feeder Start");
+	    if (_active) {
+	    	Serial.println("ERROR: already active, can't start");
+	    	return true;
+	    }
+        _pwm->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
+//        feederTime = 0;
+        _active = true;
+        return false;
+	}
+
+	bool stop() {
+	    Serial.println("Feeder Stop");
+	    _pwm->setPWM(PWM_PIN, freq, 0.0);
+	    feederTime = 0;
+	    _active = false;
+	    return false;
+	}
+
 	bool exec() {
 		Serial.println("Feeder Exec");
-		return true;
+		if (!_active) {
+			return false;
+		}
+		//// TODO
+		return false;
 	};
 
-	void prime(uint16_t numPellets) {
+	bool _burstHandler() {
+		Serial.println("Feeder Burst Handler");
+	    /*
+		float dutyCycle = MAX_DUTY_CYCLE;
+	    dutyCycle = rateToDutyCycle(shotRate);
+	    dutyCycle = normDutyCycle(dutyCycle);
+	    _pwm->setPWM(PWM_PIN, freq, dutyCycle);
+	    */
+	    return false;
+	}
+
+	bool prime(uint16_t numPellets) {
+		if (_active) {
+			Serial.println("ERROR: already active, can't prime");
+	    	return true;
+		}
 		Serial.print("Feeder Prime: ");Serial.print(numPellets);Serial.print(", ");
+
 	    _pwm->setPWM(PWM_PIN, freq, MAX_DUTY_CYCLE);
 	    delay(numPellets * MAX_FEED_RATE);
 		Serial.println(numPellets * MAX_FEED_RATE);
 	    _pwm->setPWM(PWM_PIN, freq, 0.0);
+
 	    _primed = true;
+	    return false;
 	}
 
 	// try to unjam the feeder by going back and forth a bit
 	void clear() {
 	    Serial.println("Feeder Clear");
+		stop();
+
 	    _pwm->setPWM(PWM_PIN, freq, 0.0);
 	    digitalWrite(_SLEEP_PIN, LOW);
 	    delay(5);
@@ -55,43 +93,14 @@ public:
 	    _pwm->setPWM(PWM_PIN, freq, 0.0);
 	}
 
-	void feed(float dutyCycle) {
-		Serial.print("Feed @ ");Serial.print(dutyCycle);Serial.println("%");
-	}
-
-	void start(uint32_t pellets, float shotRate) {
-		Serial.println("Feeder Start");
-	    unsigned long now = millis();
-
-		//// FIXME select proper speed to do that many shots in the given time
-	    uint32_t duration = ?(shotRate);
-	    duration = ?
-
-		float dutyCycle = MAX_DUTY_CYCLE;
-//	    dutyCycle = rateToDutyCycle(shotRate);
-	    dutyCycle = normDutyCycle(dutyCycle);
-	    _pwm->setPWM(PWM_PIN, freq, dutyCycle);
-
-	    feederTime = now + duration;
-	}
-
-	void stop() {
-	  Serial.println("Feeder Stop");
-	  _pwm->setPWM(PWM_PIN, freq, 0.0);
-	  feederTime = 0;
-	}
-
-	bool isOn() { return _feederOn; };
-
 	bool isPrimed() { return _primed; };
 
 	void setFrequency(float freq) { _freq = freq; };
 
 	float getFrequency() { return _freq; };
 protected:
-	bool _feederOn = false;
-	bool _primed = false;
 	float _freq = 2000;		//// FIXME 
+	bool _primed = false;
 
 	RP2040_PWM *_pwm;
 

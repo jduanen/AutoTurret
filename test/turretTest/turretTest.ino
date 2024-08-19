@@ -11,12 +11,9 @@ OnBoardLED *neoPix;
 
 cppQueue cmdQ(sizeof(ShotCmd_t), CMD_Q_SIZE, FIFO);
 
-BurstState_t  burst;
-
 FeederController *feeder;
 TriggerController *trigger;
 
-//// TODO make much of these functions inline/constexpr
 
 void getInput(cppQueue *qPtr) {
     if (Serial.available()) {
@@ -72,17 +69,8 @@ void setup() {
     Serial.println("BEGIN");
 
     // set up feeder and trigger objects
-    burst = {
-        0,    // (pellets)
-        0.0,  // (pellets/sec)
-        0,    // (msec)
-        0,    // (msec)
-        0,    // [0-numberOfShots]
-        0,    // (msec)
-        0,    // (msec)
-    };
-    feeder = new FeederController(&burst);
-    trigger = new TriggerController(&burst);
+    feeder = new FeederController();
+    trigger = new TriggerController();
 
     // set up Neo Pixel
     neoPix = new OnBoardLED(NEOPIXEL_POWER, PIN_NEOPIXEL);
@@ -94,7 +82,6 @@ void setup() {
 void loop() {
     getInput(&cmdQ);
     if (cmdQ.isEmpty() == false) {
-        float dutyCycle;
         ShotCmd_t cmd;
         cmdQ.pop(&cmd);
         switch (cmd.cmd) {
@@ -102,15 +89,14 @@ void loop() {
             feeder->clear();
             break;
         case BURST:
-            // void burst(uint32_t numShots, float shotRate) {
-            // burst(cmd.numShots, cmd.data.shotRate);
-            startTrigger(numShots, shotRate);
+            feeder->start(cmd.numShots, cmd.data.shotRate);
+            trigger->start(cmd.numShots, cmd.data.shotRate);
             break;
         case FEED:
-            feeder->start(?);
+            feeder->start();
             break;
         case FIRE:
-            trigger->start(?);
+            trigger->start();
             break;
         case STOP:
             feeder->stop();
@@ -121,15 +107,6 @@ void loop() {
             break;
         }
     }
-
-/*
-  unsigned long now = millis();  // N.B. rolls over after ~50 days of uptime
-  //// TODO deal with rollover
-  if (triggerTime && (triggerTime <= now)) {
-    Serial.print(now);Serial.print(", ");Serial.println(triggerTime);
-    stopTrigger();
-  }
-*/
 
     feeder->exec();
     trigger->exec();
