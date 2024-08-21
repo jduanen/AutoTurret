@@ -26,7 +26,7 @@ void getInput(cppQueue *qPtr) {
             cmd.cmd = BURST;
             cmd.time.numShots = Serial.parseInt();
             cmd.rate.shotRate = Serial.parseFloat();
-            Serial.print(cmd.time.numShots);Serial.print(", ");Serial.println(cmd.rate.shotRate);Serial.flush();
+            Serial.print(cmd.time.numShots);Serial.print(", ");Serial.println(cmd.rate.shotRate);
             break;
         case 'C':
         case 'c':
@@ -40,17 +40,16 @@ void getInput(cppQueue *qPtr) {
             break;
         case 'F':
             Serial.println("Continuous Shots");
-            //// FIXME figure this one out
             cmd.cmd = FULL;
             cmd.rate.shotRate = Serial.parseInt();
             break;
         case 'p':
-            Serial.println("Prime the Feeder");Serial.flush();
+            Serial.println("Prime the Feeder");
             cmd.cmd = PRIME;
             cmd.time.numShots = PRIME_PELLETS;
             break;
         case 's':
-            Serial.println("Single Shot");Serial.flush();
+            Serial.println("Single Shot");
             cmd.cmd = BURST;
             cmd.time.numShots = 1;
             cmd.rate.shotRate = 0.50;  //// TODO figure out appropriate rate
@@ -59,11 +58,11 @@ void getInput(cppQueue *qPtr) {
         case '?':
             Serial.println("b <num> <rate>: burst");
             Serial.println("c: clear");
-            Serial.println("f <dc> [dur]: feeder on with dutyCycle [opt duration]");
+            Serial.println("f <dc> [dur]: feeder on with dutyCycle [opt duration (msec)]");
             Serial.println("F <rate>: continuous shots at rate");
             Serial.println("p: prime the feeder");
             Serial.println("s: single shot");
-            Serial.println("<*>: feeder and trigger off");
+            Serial.println("*: feeder and trigger off");
             cmd.cmd = INVALID;
             break;
         default:
@@ -86,7 +85,8 @@ void getInput(cppQueue *qPtr) {
 void setup() {
     Serial.begin(115200);
     while (!Serial) { ; };
-    Serial.println("BEGIN");
+    Log.begin(LOG_LEVEL_VERBOSE, &Serial);  // Error, Info, Warn, Debug, Verbose
+    Log.notice("BEGIN");Serial.flush();
 
     // set up feeder and trigger objects
     feeder = new FeederController();
@@ -96,7 +96,7 @@ void setup() {
     neoPix = new OnBoardLED(NEOPIXEL_POWER, PIN_NEOPIXEL);
     neoPix->setColor(BLACK);
 
-    Serial.println("START");Serial.flush();
+    Log.notice("START");Serial.flush();
 }
 
 void loop() {
@@ -113,8 +113,6 @@ void loop() {
             feeder->clear();
             break;
         case FEED:
-            Serial.print("FEED: ");Serial.print(cmd.rate.dutyCycle);
-            Serial.print(", ");Serial.println(cmd.time.duration);
             feeder->setDutyCycle(cmd.rate.dutyCycle);
             feeder->start();
             if (cmd.time.duration != 0) {
@@ -138,15 +136,17 @@ void loop() {
             trigger->stop();
             break;
         default:
-            Serial.print("ERROR: invalid command type (0x");
-            Serial.print(String(cmd.cmd, HEX));
-            Serial.println(")");
+            Log.error("invalid command type (0x%x)", cmd.cmd);
             break;
         }
     }
 
-    feeder->exec();  //// TODO
-    trigger->exec();
+    if (feeder->exec()) {
+        Log.warning("feeder exec failed");
+    }
+    if (trigger->exec()) {
+        Log.warning("trigger exec failed");
+    }
 
     //// FIXME add methods to FeederController?
     if (digitalRead(_FAULT_PIN) == 0) {

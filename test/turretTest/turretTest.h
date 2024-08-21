@@ -23,6 +23,7 @@
 
 #include <RP2040_PWM.h>
 #include <cppQueue.h>
+#include <ArduinoLog.h>  // fatal, error, warning, notice, trace, verbose
 
 #include <OnBoardLED.h>
 
@@ -46,19 +47,20 @@
 #define MAX_SHOT_RATE   (1000.0 / MIN_SHOT_INTERVAL)  // (shots/sec) 6.67
 
 // N.B. Duty Cycle is in % of motor speed
-#define MIN_DUTY_CYCLE  30.0  // (%) can't feed reliably below 30%
-#define MAX_DUTY_CYCLE  99.0  // (%) PWM not DC, so can't be 100%
+#define MIN_DUTY_CYCLE  30.0    // (%) can't feed reliably below 30%
+#define MAX_DUTY_CYCLE  99.0    // (%) PWM not DC, so can't be 100%
 
-// N.B. Feed Rate is in pellets/sec
-#define MIN_FEED_RATE   15.4  // (pellets/sec)
-#define MAX_FEED_RATE   55.6  // (pellets/sec)
+// N.B. Feed Rate is in pellets/sec (measured times @ 19V)
+#define MIN_FEED_RATE   15.4    // (pellets/sec)
+#define MAX_FEED_RATE   55.6    // (pellets/sec)
 
 #define MIN_FEED_INTERVAL   75  // (msec)
 
-#define PRIME_PELLETS   32    // (pellets) function of the length of the feeder tube
+#define PRIME_PELLETS   37      // (pellets) function of the length of the feeder tube
+#define PRIME_DURATION  1300    // (msec) (MAX_DUTY_CYCLE measured @ 19V)
 
-#define MIN_FREQ        500   // (Hz) //// TODO fix this
-#define MAX_FREQ        5000  // (Hz) //// TODO fix this
+#define MIN_FREQ        500     // (Hz) //// TODO fix this
+#define MAX_FREQ        5000    // (Hz) //// TODO fix this
 
 #define CMD_Q_SIZE      8
 
@@ -124,7 +126,10 @@ protected:
     unsigned long _burstStartTime;  // (msec)
     unsigned long _burstEndTime;    // (msec)
 
-    uint16_t _shotNumber;       // [0-numberOfShots]
+    uint16_t _numberOfFeeds;    // (feeds)
+
+    uint16_t _shotNumber;       // [0-_numberOfShots]
+    uint16_t _feedNumber;       // [0-_numberOfFeeds]
 
     bool _burstSetup(uint32_t numberOfShots, float shotRate) {
         if (_active) {
@@ -139,19 +144,25 @@ protected:
         _burstStartTime = millis();                          // msec
         _burstEndTime = (_burstStartTime + _burstDuration);  // msec
         _shotNumber = 0;
+        _feedNumber = 0;
 
         Serial.print(_numberOfShots); Serial.print(", ");
         Serial.print(_burstRate); Serial.print(", ");
         Serial.print(_burstDuration); Serial.print(", ");
         Serial.print(_shotInterval); Serial.print(", ");
         Serial.print(_burstStartTime); Serial.print(", ");
-        Serial.print(_burstEndTime); Serial.print(", ");
-        Serial.println(_shotNumber);
+        Serial.println(_burstEndTime);
         return false;
     };
 
-    float _rateToDutyCycle(float shotRate) {
-        return (1.742 * (shotRate * 1.81));  // N.B. coefficents were experimentally derived
+    float _rateToDutyCycle(float burstRate) {
+        // N.B. coefficents were experimentally derived
+        return (1.742 * ((burstRate * 1000.0) * 1.81));
+    }
+
+    float _shotRateToDutyCycle(float shotRate) {
+        // N.B. coefficents were experimentally derived
+        return (1.742 * (shotRate * 1.81));
     }
 
     float _dutyCycleToRate(float dutyCycle) {
@@ -190,6 +201,10 @@ protected:
         }
         return shotRate;  // shots/sec
     };
+
+    float _pelletsToDuration(uint32_t numPellets) {
+        return ((numPellets * (float)PRIME_DURATION) / (float)PRIME_PELLETS);
+    }
 };
 
 #include "FeederController.h"
