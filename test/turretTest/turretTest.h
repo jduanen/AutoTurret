@@ -34,29 +34,31 @@
 #define _FAULT_PIN      D10   // _FAULT
 #define TRIG_PIN        D9
 
-#define MAX_SHOTS_PER_BURST 1000  //// FIXME
-#define MAX_BURST_RATE      500   //// FIXME
+#define MAX_SHOTS_PER_BURST 1000  // (shots/burst) //// FIXME
+#define MAX_BURST_RATE      500   // (shots/sec) //// FIXME
 
 // N.B. Shot Interval is in units of msec
-#define MIN_SHOT_INTERVAL   150   // a function of the AEG and it's power supply
-#define MAX_SHOT_INTERVAL   1000  // arbitrary value
+#define MIN_SHOT_INTERVAL   150   // (msec) function of the AEG and it's power supply
+#define MAX_SHOT_INTERVAL   1000  // (msec) arbitrary value
 
 // N.B. Shot Rate is shots/sec
-#define MIN_SHOT_RATE   (1000.0 / MAX_SHOT_INTERVAL)  // 1 shot/sec
-#define MAX_SHOT_RATE   (1000.0 / MIN_SHOT_INTERVAL)  // 6.67 shots/sec
+#define MIN_SHOT_RATE   (1000.0 / MAX_SHOT_INTERVAL)  // (shot/sec) 1
+#define MAX_SHOT_RATE   (1000.0 / MIN_SHOT_INTERVAL)  // (shots/sec) 6.67
 
 // N.B. Duty Cycle is in % of motor speed
-#define MIN_DUTY_CYCLE  30.0  // can't feed reliably below 30%
-#define MAX_DUTY_CYCLE  99.0 // PWM not DC, so can't be 100%
+#define MIN_DUTY_CYCLE  30.0  // (%) can't feed reliably below 30%
+#define MAX_DUTY_CYCLE  99.0  // (%) PWM not DC, so can't be 100%
 
 // N.B. Feed Rate is in pellets/sec
-#define MIN_FEED_RATE   15.4  // pellets/sec
-#define MAX_FEED_RATE   55.6  // pellets/sec
+#define MIN_FEED_RATE   15.4  // (pellets/sec)
+#define MAX_FEED_RATE   55.6  // (pellets/sec)
 
-#define PRIME_PELLETS   32    // a function of the length of the feeder tube
+#define MIN_FEED_INTERVAL   75  // (msec)
 
-#define MIN_FREQ        500   // TODO fix this
-#define MAX_FREQ        5000  // TODO fix this
+#define PRIME_PELLETS   32    // (pellets) function of the length of the feeder tube
+
+#define MIN_FREQ        500   // (Hz) //// TODO fix this
+#define MAX_FREQ        5000  // (Hz) //// TODO fix this
 
 #define CMD_Q_SIZE      8
 
@@ -76,13 +78,17 @@ typedef enum CmdType_e {
 // command messages to be passed to the main loop via a queue
 typedef struct {
   CmdType cmd;
-  uint32_t numShots;
   union {
-    float shotRate;   // shots/sec
-    float dutyCycle;  // %
-  } data;
+      uint32_t numShots;    // (pellets)
+      uint32_t duration;    // (msec)
+  } time;
+  union {
+    float shotRate;   // (shots/sec)
+    float dutyCycle;  // (%)
+  } rate;
 } ShotCmd_t;
 
+/*
 // global state describing a burst of (one or more) shots
 //// TODO fix up types/sizes
 typedef struct {
@@ -96,6 +102,7 @@ typedef struct {
     unsigned long   burstStartTime; // (msec)
     unsigned long   burstEndTime;   // (msec)
 } BurstState_t;
+*/
 
 
 class TimedController {
@@ -108,8 +115,8 @@ public:
 protected:
     bool _active = false;
 
-    uint16_t _numberOfShots;    // (pellets)
-    float _burstRate;           // (pellets/sec)
+    uint16_t _numberOfShots;    // (shots)
+    float _burstRate;           // (shots/sec)
 
     uint32_t _burstDuration;    // (msec)
     uint32_t _shotInterval;     // (msec)
@@ -125,12 +132,12 @@ protected:
             return true;
         }
 
-        _numberOfShots = numberOfShots;
-        _burstRate = (shotRate * 1000.0);
-        _burstDuration = ((numberOfShots * 1000.0) / _burstRate);
-        _shotInterval = (1000.00 / _burstRate);
-        _burstStartTime = millis();
-        _burstEndTime = (_burstStartTime + _burstDuration);
+        _numberOfShots = _normNumberOfShots(numberOfShots);  // #shots
+        _burstRate = (_normShotRate(shotRate) / 1000.0);     // #shots/msec
+        _burstDuration = (_numberOfShots / _burstRate);      // msec
+        _shotInterval = (1.00 / _burstRate);                 // msec
+        _burstStartTime = millis();                          // msec
+        _burstEndTime = (_burstStartTime + _burstDuration);  // msec
         _shotNumber = 0;
 
         Serial.print(_numberOfShots); Serial.print(", ");
@@ -140,8 +147,6 @@ protected:
         Serial.print(_burstStartTime); Serial.print(", ");
         Serial.print(_burstEndTime); Serial.print(", ");
         Serial.println(_shotNumber);
-
-        _active = true;
         return false;
     };
 
@@ -160,14 +165,16 @@ protected:
         dc = ((dc > MAX_DUTY_CYCLE) ? MAX_DUTY_CYCLE : dc);
 
         if (dc != dutyCycle) {
-            Serial.println("INFO: duty cycle normalized");
+            Serial.print("INFO: duty cycle normalized (");
+            Serial.print(dutyCycle);Serial.print(", ");
+            Serial.print(dc);Serial.println(")");
         }
 
         return dc;  // % of full motor speed
     }
 
-    uint32_t _normNumShots(uint32_t numShots) {
-        uint32_t shots = ((shots > MAX_SHOTS_PER_BURST) ? MAX_SHOTS_PER_BURST : shots);
+    uint32_t _normNumberOfShots(uint32_t numShots) {
+        uint32_t shots = ((numShots > MAX_SHOTS_PER_BURST) ? MAX_SHOTS_PER_BURST : numShots);
         if (shots != numShots) {
             Serial.println("INFO: number of shots normalized");
         }
