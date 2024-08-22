@@ -22,7 +22,6 @@ public:
 
 	bool start() {
 //	    Log.notice("Feeder Start: %d\n", _dutyCycle);
-		Serial.print("Feeder Start: ");Serial.println(_dutyCycle);
 		return _start(_dutyCycle);
 	}
 
@@ -81,6 +80,13 @@ public:
             _primed = true;
         }
 
+		if (_start(MAX_DUTY_CYCLE)) {
+			return true;
+		}
+		_nextTime = _burstEndTime;
+		Serial.print("First time: ");Serial.println(_nextTime);
+
+        /*
 		_dutyCycle = _rateToDutyCycle(_burstRate);
 		Serial.print("dc: ");Serial.println(_dutyCycle);
 		_dutyCycle = (_dutyCycle > MAX_DUTY_CYCLE) ? MAX_DUTY_CYCLE : _dutyCycle;
@@ -89,14 +95,14 @@ public:
 			if (_start(MAX_DUTY_CYCLE)) {
 				return true;
 			}
-			_nextTime = (_burstStartTime + MIN_FEED_INTERVAL);
-			_numberOfFeeds = <int>
+			_nextTime = _burstEndTime;
 			Serial.print("First time: ");Serial.println(_nextTime);
 		} else {
 	        //// FIXME figure out dutyCycle and nextTime
 			Serial.println("Duty Cycle below MIN");
 			return true;
 		}
+		*/
 	    return false;
 	}
 
@@ -109,15 +115,8 @@ public:
 		if (now >= _nextTime) {
 			if (_on) {
 				Serial.println(now);
-				if (now >= _burstEndTime) {
-					if (stop()) {
-						return true;
-					}
-				} else {
-					if (_start(_dutyCycle)) {
-						return true;
-					}
-					_next_time = _burstEndTime;
+				if (stop()) {
+					return true;
 				}
 			}
 		}
@@ -132,7 +131,7 @@ public:
 
 	void setDutyCycle(float dutyCycle) {
 		_dutyCycle = _normDutyCycle(dutyCycle);
-		Log.notice("_dutyCycle = %0.2f", _dutyCycle);
+		Log.notice("_dutyCycle = %f\n", _dutyCycle);
 	};
 
 	float getDutyCycle() { return _dutyCycle; };
@@ -147,11 +146,12 @@ protected:
 	RP2040_PWM *_pwm;
 
 	bool _start(float dutyCycle) {
+		Serial.print("Feeder Start: ");Serial.println(dutyCycle);
 	    if (_active) {
 	    	Log.error("already active, can't start");
 	    	return true;
 	    }
-        _pwm->setPWM(PWM_PIN, _freq, _dutyCycle);
+        _pwm->setPWM(PWM_PIN, _freq, dutyCycle);
         _feedNumber++;
         _active = _on = (dutyCycle > 0.0);
         return false;

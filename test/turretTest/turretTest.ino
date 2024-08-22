@@ -144,9 +144,11 @@ void loop() {
     if (feeder->exec()) {
         Log.warning("feeder exec failed");
     }
+    /*
     if (trigger->exec()) {
         Log.warning("trigger exec failed");
     }
+    */
 
     //// FIXME add methods to FeederController?
     if (digitalRead(_FAULT_PIN) == 0) {
