@@ -29,8 +29,10 @@
 #include <OnBoardLED.h>
 
 
-#define START_PIN   2
-#define END_PIN     3
+#define START_PIN           2
+#define END_PIN             3
+#define START_IR_LED        7
+#define START_IR_DETECTOR   8
 
 
 volatile uint16_t startTime = 0;
@@ -75,25 +77,48 @@ void setup() {
     TIMSK1 |= (1 << TOIE1);  // enable overflow interrupt
   
     // configure external interrupt pins
-    attachInterrupt(digitalPinToInterrupt(START_PIN), startMeasure, RISING);
-    attachInterrupt(digitalPinToInterrupt(END_PIN), endMeasure, RISING);
+//    attachInterrupt(digitalPinToInterrupt(START_PIN), startMeasure, RISING);
+//    attachInterrupt(digitalPinToInterrupt(END_PIN), endMeasure, RISING);
+
+    // digital start/stop inputs
+    pinMode(START_IR_DETECTOR, INPUT_PULLUP);
+
+    // IR LED enables
+    pinMode(START_IR_LED, OUTPUT);
+    digitalWrite(START_IR_LED, HIGH);
 
     blueLED->off();
 };
 
+bool inVal = false;
+
 void loop() {
-    blueLED->on();
+    //// N.B. this loop runs at ~41KHz
     if (measureDone) {
         uint32_t totalTime = ((uint32_t)endTime +
                               ((uint32_t)overflows * 65536) - 
                               (uint32_t)startTime);
         float timeDiff = (totalTime / 16.0);  // microseconds
-    
+
         Serial.print("Time diff: ");
         Serial.print(timeDiff);
         Serial.println(" usec");
     
         measureDone = false;
     }
-    blueLED->off();
+
+    //// N.B. the next three lines take ~6.8usec
+    digitalWrite(START_IR_LED, LOW);
+    bool i = digitalRead(START_IR_DETECTOR);
+    digitalWrite(START_IR_LED, HIGH);
+
+    if (i != inVal) {
+        Serial.println(i);
+        inVal = i;
+    }
+    if (inVal) {
+        blueLED->on();
+    } else {
+        blueLED->off();
+    }
 };
