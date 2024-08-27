@@ -105,7 +105,16 @@ An automated turret
       - power and status LEDs
       - Vin: 5-12VDC, 5V regulator, 150mA
       - 8x analog pins, 14x digital GPIOs
+      - use FTDI USB to Serial converter
+        * select 5V, also need to hook up DTR
     * use 5V version
+      - for Arduino IDE: select Arduino Duemilanove
+  - 12864 128x64 OLED display
+    * 3-5V input (i/o is 5V tolerant)
+    * SSD1306 controller
+    * I2C interface, address: 0x3C
+    * v1.1 is all white, -13 is yellow on top and blue below
+      - 2x rows (32px) of yellow and 6x (96px) rows of blue
   - two sets of IR transmitter-receiver pairs
     * interrupt IR beam to mark start and end of pellet transit over fixed distance
     * pull up IR LED with 200 ohms to Vcc, and pull down via GPIO
