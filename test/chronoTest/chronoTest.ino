@@ -27,18 +27,27 @@
 #include <ArduinoLog.h>  // fatal, error, warning, notice, trace, verbose
 
 #include <OnBoardLED.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 
-#define START_PIN           2
-#define END_PIN             3
-#define START_IR_LED        7
-#define START_IR_DETECTOR   8
+#define START_IR_LED        5
+#define START_IR_DETECTOR   6
+#define END_IR_LED          7
+#define END_IR_DETECTOR     8
+
+#define SCREEN_ADDRESS      0x3C
+#define SCREEN_WIDTH        128
+#define SCREEN_HEIGHT       64
 
 
 volatile uint16_t startTime = 0;
 volatile uint16_t endTime = 0;
 volatile uint16_t overflows = 0;
 volatile bool measureDone = false;
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 OnBoardLED *blueLED;
 
@@ -62,7 +71,18 @@ void setup() {
     Serial.begin(115200);
     while (!Serial) { ; };
     Log.begin(LOG_LEVEL_VERBOSE, &Serial);  // Error, Info, Warn, Debug, Verbose
-    Log.notice("BEGIN");Serial.flush();
+    Log.notice(F("BEGIN"));
+
+   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+        Log.error(F("SSD1306 allocation failed"));
+        for(;;); //// FIXME
+    }
+    display.clearDisplay();  // N.B. do this before display() to clear the logo
+    display.display();
+    display.invertDisplay(true);
+    delay(1000);
+    display.invertDisplay(false);
+    Log.info(F("DONE"));
 
     blueLED = new OnBoardLED(LED_BUILTIN);
     blueLED->on();
@@ -82,12 +102,16 @@ void setup() {
 
     // digital start/stop inputs
     pinMode(START_IR_DETECTOR, INPUT_PULLUP);
+    pinMode(END_IR_DETECTOR, INPUT_PULLUP);
 
-    // IR LED enables
+    // IR LED pull-down enables
     pinMode(START_IR_LED, OUTPUT);
+    pinMode(END_IR_LED, OUTPUT);
     digitalWrite(START_IR_LED, HIGH);
+    digitalWrite(END_IR_LED, HIGH);
 
     blueLED->off();
+    Serial.flush();
 };
 
 bool inVal = false;
@@ -108,9 +132,7 @@ void loop() {
     }
 
     //// N.B. the next three lines take ~6.8usec
-    digitalWrite(START_IR_LED, LOW);
     bool i = digitalRead(START_IR_DETECTOR);
-    digitalWrite(START_IR_LED, HIGH);
 
     if (i != inVal) {
         Serial.println(i);
