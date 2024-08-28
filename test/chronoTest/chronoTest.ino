@@ -3,24 +3,6 @@
 * Airsoft Chronograph test program
 *
 * Uses HW ctr/tmr to get timestamps of start/stop events to measure speed
-* 
-* ATmega328P
-*   - Timers:
-*       * Timer/Counter 0: 8-bit
-*       * Timer/Counter 1: 16-bit (with Input Capture capability)
-*       * Timer/Counter 2: 8-bit
-* ATmega2560
-*   - Timers:
-*       * Timer/Counter 0: 8-bit
-*       * Timer/Counter 1: 16-bit (with Input Capture capability)
-*       * Timer/Counter 2: 8-bit
-*       * Timer/Counter 3: 16-bit (with Input Capture capability)
-*       * Timer/Counter 4: 16-bit (with Input Capture capability)
-*       * Timer/Counter 5: 16-bit (with Input Capture capability)
-* ATtiny84
-*   - Timers:
-*       * Timer/Counter 0: 8-bit
-*       * Timer/Counter 1: 16-bit (with Input Capture capability)
 *
 ******************************************************************************/
 
@@ -33,9 +15,11 @@
 
 
 #define START_IR_LED        5
-#define START_IR_DETECTOR   6
-#define END_IR_LED          7
-#define END_IR_DETECTOR     8
+#define START_IR_DETECTOR   2  // INT0
+#define END_IR_LED          6
+#define END_IR_DETECTOR     3  // INT1
+
+#define BUTTON_PIN          4
 
 #define SCREEN_ADDRESS      0x3C
 #define SCREEN_WIDTH        128
@@ -110,6 +94,9 @@ void setup() {
     digitalWrite(START_IR_LED, HIGH);
     digitalWrite(END_IR_LED, HIGH);
 
+    // input button
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+
     blueLED->off();
     Serial.flush();
 };
@@ -143,4 +130,15 @@ void loop() {
     } else {
         blueLED->off();
     }
+
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(10, 0);
+    if (digitalRead(BUTTON_PIN)) {
+        display.println(F("ON"));
+    } else {
+        display.println(F("OFF"));
+    }
+    display.display();
 };
