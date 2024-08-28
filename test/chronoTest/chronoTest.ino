@@ -33,7 +33,7 @@ volatile bool measureDone = false;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-OnBoardLED *blueLED;
+OnBoardLED *LED;
 
 
 ISR(TIMER1_OVF_vect) {
@@ -68,8 +68,8 @@ void setup() {
     display.invertDisplay(false);
     Log.info(F("DONE"));
 
-    blueLED = new OnBoardLED(LED_BUILTIN);
-    blueLED->on();
+    LED = new OnBoardLED(LED_BUILTIN);
+    LED->on();
 
     // Configure Timer1
     TCCR1A = 0;
@@ -85,26 +85,26 @@ void setup() {
 //    attachInterrupt(digitalPinToInterrupt(END_PIN), endMeasure, RISING);
 
     // digital start/stop inputs
-    pinMode(START_IR_DETECTOR, INPUT_PULLUP);
-    pinMode(END_IR_DETECTOR, INPUT_PULLUP);
+    pinMode(START_IR_DETECTOR, INPUT);
+    pinMode(END_IR_DETECTOR, INPUT);
 
     // IR LED pull-down enables
     pinMode(START_IR_LED, OUTPUT);
     pinMode(END_IR_LED, OUTPUT);
-    digitalWrite(START_IR_LED, HIGH);
-    digitalWrite(END_IR_LED, HIGH);
+    digitalWrite(START_IR_LED, LOW);
+    digitalWrite(END_IR_LED, LOW);
 
     // input button
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-    blueLED->off();
+    LED->off();
     Serial.flush();
 };
 
 bool inVal = false;
 
 void loop() {
-    //// N.B. this loop runs at ~41KHz
+    //// N.B. this loop runs at ????
     if (measureDone) {
         uint32_t totalTime = ((uint32_t)endTime +
                               ((uint32_t)overflows * 65536) - 
@@ -118,17 +118,12 @@ void loop() {
         measureDone = false;
     }
 
-    //// N.B. the next three lines take ~6.8usec
-    bool i = digitalRead(START_IR_DETECTOR);
-
-    if (i != inVal) {
-        Serial.println(i);
-        inVal = i;
-    }
-    if (inVal) {
-        blueLED->on();
+    bool startDetect = digitalRead(START_IR_DETECTOR);
+    bool endDetect = digitalRead(END_IR_DETECTOR);
+    if (endDetect) {
+        LED->on();
     } else {
-        blueLED->off();
+        LED->off();
     }
 
     display.clearDisplay();
