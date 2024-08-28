@@ -99,7 +99,21 @@ An automated turret
   - use ATmega328p
     * can also use ATmega2560, ATmega32U4, ATmega1284P
     * need TIMER1 16-bit timer/counter with external trigger
-    * Arduino Pro Mini 328 (Sparkfun)
+      - ATmega328P
+        * Timer/Counter 0: 8-bit
+        * Timer/Counter 1: 16-bit (with Input Capture capability)
+        * Timer/Counter 2: 8-bit
+      - ATmega2560
+        * Timer/Counter 0: 8-bit
+        * Timer/Counter 1: 16-bit (with Input Capture capability)
+        * Timer/Counter 2: 8-bit
+        * Timer/Counter 3: 16-bit (with Input Capture capability)
+        * Timer/Counter 4: 16-bit (with Input Capture capability)
+        * Timer/Counter 5: 16-bit (with Input Capture capability)
+      - ATtiny84
+        * Timer/Counter 0: 8-bit
+        * Timer/Counter 1: 16-bit (with Input Capture capability)
+    * use an Arduino Pro Mini 328 (Sparkfun-like clone)
       - https://www.sparkfun.com/products/11113
       - 18x33mm, 0.8mm thin PCB
       - power and status LEDs
@@ -119,10 +133,13 @@ An automated turret
     * interrupt IR beam to mark start and end of pellet transit over fixed distance
     * pull up IR LED with 200 ohms to Vcc, and pull down via GPIO
       - Vcc=5V, Ilo=20mA, IR LED: 1.2V forward drop
-    * IR photodiode: anode to Vcc, cathode to pull-down and GPIO input
-      - 10K ohm pull-down resistor
-      - ?
-    * ?
+    * IR photodiode
+      - anode to Vcc
+      - cathode to pull-down and GPIO input
+      - 120K ohm pull-down resistor
+    * IR emitter
+      - anode to 180 ohm resistor to Vcc
+      - cathode to GPIO output (ATmega328p can pull down 20mA)
 
 * Pololu DRV8876 board
   - one motor channel
