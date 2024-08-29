@@ -8,7 +8,6 @@
 
 #include <ArduinoLog.h>  // fatal, error, warning, notice, trace, verbose
 
-#include <OnBoardLED.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -32,8 +31,6 @@ volatile uint16_t overflows = 0;
 volatile bool measureDone = false;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-OnBoardLED *LED;
 
 
 ISR(TIMER1_OVF_vect) {
@@ -68,9 +65,6 @@ void setup() {
     display.invertDisplay(false);
     Log.info(F("DONE"));
 
-    LED = new OnBoardLED(LED_BUILTIN);
-    LED->on();
-
     // Configure Timer1
     TCCR1A = 0;
     TCCR1B = 0;
@@ -81,8 +75,9 @@ void setup() {
     TIMSK1 |= (1 << TOIE1);  // enable overflow interrupt
   
     // configure external interrupt pins
-//    attachInterrupt(digitalPinToInterrupt(START_PIN), startMeasure, RISING);
-//    attachInterrupt(digitalPinToInterrupt(END_PIN), endMeasure, RISING);
+    //// TODO figure out if RISING or FALLING works better
+    attachInterrupt(digitalPinToInterrupt(START_IR_DETECTOR), startMeasure, RISING);
+    attachInterrupt(digitalPinToInterrupt(END_IR_DETECTOR), endMeasure, RISING);
 
     // digital start/stop inputs
     pinMode(START_IR_DETECTOR, INPUT);
@@ -97,11 +92,8 @@ void setup() {
     // input button
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-    LED->off();
     Serial.flush();
 };
-
-bool inVal = false;
 
 void loop() {
     //// N.B. this loop runs at ????
@@ -114,16 +106,8 @@ void loop() {
         Serial.print("Time diff: ");
         Serial.print(timeDiff);
         Serial.println(" usec");
-    
-        measureDone = false;
-    }
 
-    bool startDetect = digitalRead(START_IR_DETECTOR);
-    bool endDetect = digitalRead(END_IR_DETECTOR);
-    if (endDetect) {
-        LED->on();
-    } else {
-        LED->off();
+        measureDone = false;
     }
 
     display.clearDisplay();
