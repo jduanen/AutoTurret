@@ -8,6 +8,8 @@
 
 #include <ArduinoLog.h>  // fatal, error, warning, notice, trace, verbose
 
+#include <stdint.h>
+
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -29,6 +31,13 @@ volatile uint16_t startTime = 0;
 volatile uint16_t endTime = 0;
 volatile uint16_t overflows = 0;
 volatile bool measureDone = false;
+
+float elapsedTime;
+uint32_t count;
+unsigned long totalTime;
+uint32_t minTime;
+uint32_t avgTime;
+uint32_t maxTime;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
@@ -92,32 +101,76 @@ void setup() {
     // input button
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
+    elapsedTime = 0.0;
+    count = 0;
+    totalTime = 0;
+    minTime = UINT32_MAX;
+    avgTime = 0;
+    maxTime = 0;
+
+    startTime = 0;
+    endTime = 0;
+    overflows = 0;
+    measureDone = false;
+
     Serial.flush();
 };
 
 void loop() {
     //// N.B. this loop runs at ????
-    if (measureDone) {
-        uint32_t totalTime = ((uint32_t)endTime +
-                              ((uint32_t)overflows * 65536) - 
-                              (uint32_t)startTime);
-        float timeDiff = (totalTime / 16.0);  // microseconds
+    if (!digitalRead(BUTTON_PIN)) {
+        elapsedTime = 0.0;
+        count = 0;
+        totalTime = 0;
+        minTime = UINT32_MAX;
+        avgTime = 0;
+        maxTime = 0;
+        Serial.println("Reset"); //// TMP TMP TMP
+    }
 
-        Serial.print("Time diff: ");
-        Serial.print(timeDiff);
-        Serial.println(" usec");
+    if (measureDone) {
+        uint32_t elapsed = ((uint32_t)endTime + ((uint32_t)overflows * 65536) -
+                            (uint32_t)startTime);
+        elapsedTime = (elapsed / 16.0);  // microseconds
+
+        count++;
+        totalTime += elapsedTime;
+        minTime = (elapsedTime < minTime) ? elapsedTime : minTime;
+        avgTime = (totalTime / count);
+        maxTime = (elapsedTime > maxTime) ? elapsedTime : maxTime;
+
+        //// TMP TMP TMP
+        Serial.print(F("elapsedTime: "));Serial.println(elapsedTime);
+        Serial.print(F("totalTime: "));Serial.println(totalTime);
+        Serial.print(F("count: "));Serial.println(count);
+        Serial.print(F("minTime: "));Serial.println(minTime);
+        Serial.print(F("avgTime: "));Serial.println(avgTime);
+        Serial.print(F("maxTime: "));Serial.println(maxTime);
 
         measureDone = false;
     }
 
     display.clearDisplay();
-    display.setTextSize(2);
     display.setTextColor(SSD1306_WHITE);
-    display.setCursor(10, 0);
-    if (digitalRead(BUTTON_PIN)) {
-        display.println(F("ON"));
-    } else {
-        display.println(F("OFF"));
+
+    // N.B. size=1: 5x7 chars, 21x chars/line, 8x lines;
+    // N.B. size=2: 10x16 chars, 11x chars/line, x4 lines (no line spaces);
+    // N.B. can enable special chars with 'display.cp437(true);'
+    // first line: last time, count
+    char charBuf[21];
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    sprintf(charBuf, "T: %d %d", int(elapsedTime / 1000), count);
+    display.println(charBuf);
+    if (count) {
+        display.setCursor(0, 17);
+        sprintf(charBuf, "min: %d", int(minTime / 1000));
+        display.println(charBuf);
+        sprintf(charBuf, "avg: %d", int(avgTime / 1000));
+        display.println(charBuf);
+        sprintf(charBuf, "max: %d", int(maxTime / 1000));
+        display.println(charBuf);
     }
+
     display.display();
 };
