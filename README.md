@@ -152,6 +152,7 @@ An automated turret
     * t_2 = sqrt((2 * (0.03 + 0.04)) / 9.8) = 0.1195 secs
     * t_d = (t_2 - t_1) = 0.0413 secs
     * v_avg = (d_2 / t_d) = (0.04 / 0.0413) = 0.9685 m/s
+    * N.B. these numbers assume falling in a vacuum (and doesn't touch the walls)
 
 * Pololu DRV8876 board
   - one motor channel
