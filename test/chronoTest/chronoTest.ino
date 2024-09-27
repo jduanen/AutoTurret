@@ -4,6 +4,9 @@
 *
 * Uses HW ctr/tmr to get timestamps of start/stop events to measure speed
 *
+* If reset button pressed at power on, enter Imperial Units mode, else run in
+*  Metric Units mode.
+*
 ******************************************************************************/
 
 #include <ArduinoLog.h>  // fatal, error, warning, notice, trace, verbose
@@ -26,11 +29,16 @@
 #define SCREEN_WIDTH        128
 #define SCREEN_HEIGHT       64
 
+#define SENSOR_DISTANCE     0.04  // meters between start and end sensors
+#define GRAVITY             9.8   // m/s^2
 
-volatile uint16_t startTime = 0;
-volatile uint16_t endTime = 0;
-volatile uint16_t overflows = 0;
-volatile bool measureDone = false;
+#define METERS_TO_FEET(m)   (m * 3.28084)
+
+
+volatile uint16_t startTime;
+volatile uint16_t endTime;
+volatile uint16_t overflows;
+volatile bool measureDone;
 
 float elapsedTime;
 uint32_t count;
@@ -38,6 +46,10 @@ unsigned long totalTime;
 uint32_t minTime;
 uint32_t avgTime;
 uint32_t maxTime;
+
+float velocity;
+
+bool metric;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
@@ -56,6 +68,23 @@ void endMeasure() {
   endTime = TCNT1;
   measureDone = true;
 };
+
+void initVars() {
+    elapsedTime = 0.0;
+    count = 0;
+    totalTime = 0;
+    minTime = UINT32_MAX;
+    avgTime = 0;
+    maxTime = 0;
+
+    startTime = 0;
+    endTime = 0;
+    overflows = 0;
+
+    velocity = 0;
+
+    measureDone = false;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -101,31 +130,21 @@ void setup() {
     // input button
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-    elapsedTime = 0.0;
-    count = 0;
-    totalTime = 0;
-    minTime = UINT32_MAX;
-    avgTime = 0;
-    maxTime = 0;
+    initVars();
 
-    startTime = 0;
-    endTime = 0;
-    overflows = 0;
-    measureDone = false;
+    metric = (digitalRead(BUTTON_PIN) ? true : false);
 
     Serial.flush();
 };
 
 void loop() {
-    //// N.B. this loop runs at ????
+    float minVelocity;
+    float avgVelocity;
+    float maxVelocity;
+
     if (!digitalRead(BUTTON_PIN)) {
-        elapsedTime = 0.0;
-        count = 0;
-        totalTime = 0;
-        minTime = UINT32_MAX;
-        avgTime = 0;
-        maxTime = 0;
-        Serial.println("Reset"); //// TMP TMP TMP
+        initVars();
+        Log.info(F("Reset"));
     }
 
     if (measureDone) {
@@ -139,13 +158,16 @@ void loop() {
         avgTime = (totalTime / count);
         maxTime = (elapsedTime > maxTime) ? elapsedTime : maxTime;
 
-        //// TMP TMP TMP
-        Serial.print(F("elapsedTime: "));Serial.println(elapsedTime);
-        Serial.print(F("totalTime: "));Serial.println(totalTime);
-        Serial.print(F("count: "));Serial.println(count);
-        Serial.print(F("minTime: "));Serial.println(minTime);
-        Serial.print(F("avgTime: "));Serial.println(avgTime);
-        Serial.print(F("maxTime: "));Serial.println(maxTime);
+        velocity = ((SENSOR_DISTANCE * 1000000.0) / elapsedTime);
+        minVelocity = ((SENSOR_DISTANCE * 1000000.0) / maxTime);
+        avgVelocity = ((SENSOR_DISTANCE * 1000000.0) / avgTime);
+        maxVelocity = ((SENSOR_DISTANCE * 1000000.0) / minTime);
+        if (!metric) {
+            velocity = METERS_TO_FEET(velocity);
+            minVelocity = METERS_TO_FEET(minVelocity);
+            avgVelocity = METERS_TO_FEET(avgVelocity);
+            maxVelocity = METERS_TO_FEET(maxVelocity);
+        }
 
         measureDone = false;
     }
@@ -158,19 +180,28 @@ void loop() {
     // N.B. can enable special chars with 'display.cp437(true);'
     // first line: last time, count
     char charBuf[21];
+    char veloStr[6];  // xxx.xx m/s (or fps)
+
     display.setTextSize(2);
     display.setCursor(0, 0);
-    sprintf(charBuf, "T: %d %d", int(elapsedTime / 1000), count);
+
+    dtostrf(velocity, 4, 1, veloStr);
+    sprintf(charBuf, "%c%s #%d", (metric ? 'M' : 'I'), veloStr, count);
     display.println(charBuf);
     if (count) {
         display.setCursor(0, 17);
-        sprintf(charBuf, "min: %d", int(minTime / 1000));
+
+        dtostrf(minVelocity, 4, 2, veloStr);
+        sprintf(charBuf, "min: %s", veloStr);
         display.println(charBuf);
-        sprintf(charBuf, "avg: %d", int(avgTime / 1000));
+
+        dtostrf(avgVelocity, 4, 2, veloStr);
+        sprintf(charBuf, "avg: %s", veloStr);
         display.println(charBuf);
-        sprintf(charBuf, "max: %d", int(maxTime / 1000));
+
+        dtostrf(maxVelocity, 4, 2, veloStr);
+        sprintf(charBuf, "max: %s", veloStr);
         display.println(charBuf);
     }
-
     display.display();
 };
