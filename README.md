@@ -140,6 +140,18 @@ An automated turret
     * IR emitter
       - anode to 180 ohm resistor to Vcc
       - cathode to GPIO output (ATmega328p can pull down 20mA)
+  - calibration tests
+    * distance between start and end sensors: 40mm
+    * drop pellet from top of compression fitting (30mm from start sensor)
+    * v = 1/2 * g * t^2
+    * g = 9.8 m/s^2
+    * d_1 = 30mm = 0.03 m
+    * d_2 = 40mm = 0.04 m
+    * t = sqrt((2 * d) / 9.8)
+    * t_1 = sqrt((2 * 0.03) / 9.8) = 0.0782 secs
+    * t_2 = sqrt((2 * 0.04) / 9.8) = 0.1195 secs
+    * t_d = (t_2 - t_1) = 0.0413 secs
+    * v_avg = (d_2 / t_d) = (0.04 / 0.0413) = 0.9685 m/s
 
 * Pololu DRV8876 board
   - one motor channel
