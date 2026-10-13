@@ -1,314 +1,404 @@
 # AutoTurret
-An automated turret
+
+An automated turret for detecting and tracking objects.
+
+## Requirements
+
+- Detection
+  * multi-modal sensors (visual, acoustic, thermal, RF, Lidar, etc.)
+  * ????
+- Tracking
+  * ????
+- Video Streaming
+  * all payloads include video sensor
+    - variable focus? digital/analog zoom?
+  * low latency video capture for local processing (for local vision tasks)
+  * video streamed over WiFi with low latency
+- Payload
+  * ????
+- Telemetry
+  * Store local history (FIFO ring buffers for limited look-back)
+  * Publish (selected) information as MQTT messages over WiFi
+  * Information gathered
+    - Base Location/Orientation
+       * absolute, repeatable, accurate (IMU, magnetometer)
+    - Turret Position (relative to Base)
+    - Environmental Conditions
+      * Temperature (of key components and ambient)
+      * Air Pressure
+      * Wind speed and direction
+      * Rain
+    - Power (voltage and current at different points)
+
 
 ## Features
 
 * Servo-Driven Pan and Tilt Platform
   - ** TBD **
 
-* Airsoft Armaments
-  - Automatic Electric Gun (AEG)
-    * for initial testing
-    * ** TBD **
-  - High-Pressure Air (HPA)
-    * ** TBD **
-  - High-Speed Feeder
-    * requirements
-      - <= 3000 pellets/min (50 pellets/sec)
-      - no jamming over full capacity of pellets
-      - sufficient capacity to match air supply
-      - operates in all orientations (i.e., don't rely on gravity feed)
-      - flexible feeder line
-      - effective range <15 meters
-      - ? J, ? fps
-    * design features
-      - ?
-    * feeder data
-      - 20V@?A: 44.5 p/s
-        * max rate (24V@?A): 55 p/s
-      - current limiting resistor for DRV8876
-        * ? ohms: ????
-
-* Sensors
-  - Presence Detection
-    * 24GHz radar
-      - ** TBD **
-    * PIR
-      - ** TBD **
-  - Vision-Based Detection
-    * ** TBD **
-  - Vision-Based Targeting
-    * ** TBD **
-  - Video Streaming
-    * ** TBD **
-  - Telemetry
-    * ** TBD **
-  - Airsoft Sensors
-    * Chronograph
-      - add pair of IR emitter/receiver pairs to tube added to end of barrel
-        * make tube slightly larger than bore size
-        * place emitter and receiver on opposite sides of the tube
-        * separate emitter/receiver pairs by 50mm or 100mm
-          - depends on achievable accuracy
-        * ?
-      - ?
-    * Pellet Supply
-      - <reference to model source>
-        * <describe the mods I made>
-        * <add cad files>
-      - <flexible feeder tube>
-      - 
-    * Air Supply
-      - ** TBD **
-    * Orientation
-      - absolute, repeatable, accurate (IMU, magnetometer)
-      - ** TBD **
-
 ## Notes
 
-* Test Environment
-  - start with cheap AEG engine
-    * remove from original plastic
-    * design and print a new enclosure
-  - create a test target
-    * use 70mm cardboard shipping tube
-    * add high-density foam with 45 degree face at far end
-    * create a "plug" around the AEG barrel with high-density foam
+* Example targets and their key characteristics
+  - Drones
+    * emit sounds (motor/jet/prop noise)
+    * may emit radiation (RF links)
+    * assume that they are both larger, slower, and lower accleration than hummingbirds
+  - (Anna's) Hummingbirds
+    * emit sounds
+      - wing hum: 40-45Hz
+        * plus harmonics at 80-90Hz, 120-135Hz, up to 400Hz
+        * mean wingbeat frequency measured at 44.2 +/-1.8Hz
+        * changing lift/drag produces series of harmonics that create the buzz sound
+      - male songs: 3-6kHz
+        * rapid trill spanning 3.0-5.75kHz and subsequent note spanning 3.25-5.0kHz
+        * Doppler shift of up to +/-300Hz
+      - ordinary "chip" calls: brief broadband sounds
+      - courtship dive chirp: 4.1kHz +/-0.2kHz (with higher harmonics)
+    * high speed/acceleration/rate of change
+      - courtship dive
+        * 27.3 +/-3.2 m/s (avg) speed
+        * 8.5-9 g (83-88 ms^2) pullout from dive
+      - horizontal flight: 15 m/s (peak), 2.22 m/s (avg around feeder)
+        * 1.20-2.94 m/s (measured maneuver peak speeds)
+      - short horizontal acceleration
+        * measured: 6.30 m/s^2 (avg), 2.96-8.83 m/s^2
+        * horizontal breaking: 6.67 m/s^2 (mean maneuver peak)
+    * video tracker suggestions for hummingbirds
+      - RasPi with fixed global-shutter camera
+      - record timestamped 60 FPS clips
+      - develop motion detector and tracker offline before realtime inference
+ 
+* Vision-servo tracking systems
+  - for rectilinear camera, approximate projected body length near the image center
+    * p ~ (W * L) / (2 * d * tan(theta / 2))
+      - W: horizontal resolution
+      - L: projected length perpendicular to the viewing direction
+      - d: distance
+      - theta: horizontal FOV
+    * as a target, want to get 25-50 pixels within the tracking region
+  - at 10 m/s, object travels ~170mm between frames at 60 FPS
+  - don't have to run detector on every full-resolution frame
+    * can run frequent light-weight motion tracking with less frequent learned detections to confirm or correct tracks
+      - long gap between detections is difficult due to abrupt maneuvers
+      - small-bird tracking literature identifies rapid motion and association failures as coupled problems
+  - how fast does a PZT mount have to move
+    * approach as visual-servo system
+    * biggest problem is latency -- must do detection, motion predition, and move before object leaves the FOV
+    * works better for following an acquired target, as opposed to continuously detecting all targets in the FOV
+    * target's angular speed relative to the camera is important (not just linear speed)
+    *  w ~ v_p / r
+      - w: angular speed
+      - v_p: velocity perpendicular to the line of sight
+      - r: range
+    * e.g., 10 m/s target speed at 10 m from camera -- 57 deg/s
+      - gets more demanding to track the closer the object is from the camera
+      - at the same time it gets harder to detect the futher the object is from the camera
+    * e.g., 57 deg/s angular speed, with total delay of 100ms, object moves 5.7 deg in that time
+      - if 10 deg HFOV, then object will leave the frame before the system can respond
+    * prediction helps, but is defeated by rapid changes in direction
+      - prediction requires both speed and robustness
+      - prediction has to account for target motion, camera motion, and delays
+      - predict where the target will be when the mount arrives
+      - basic angular prediction
+        * thetaHat(t + T) = theta(t) + thetaDot(t)T
+          - T includes frame age, inference time, comm, and mount response
+        * e.g., target moving at 60deg/s moves 6deg in 100msec, so acquisition FOV must accomodate both this motion and prediction uncertainty
+        * processing flow
+          - timestamp observations at point of capture
+          - measure end-to-end delay (don't infer from frame rate)
+          - avoid processing buffered stale frames
+          - keep uncertainty margins around the predicted target position
+          - let PZT camera correct residual pointing errors after handoff
+      - predictive visual-servo research combines target-state estimation with FOV constraints
+  - fundamental tradeoffs
+    * wide FOV: easier target acquisition and retention, fewer pixels on target
+    * narrow FOV: better target detail, less tolerance for pointing error and latency
+    * aggressive zoom: improved detail only while tracking remains stable
+  - discard late frames, don't let frames get buffered
+  - control angular error with prediction
+    * controller combines
+      - angular position error for centering
+      - estimaged target angular velocity as feed-forward
+      - prediction over measured feedback delay
+      - rate and acceleration limis
+      - modest central deadband to reduce jitter
+    * estimate target motion in a camera-motion-compensated coordinate system
+      - otherwise, the mount's movement will look like target movement
+  - handle target acquisition and loss explicitly
+    * state machine: Search -> Aquire -> Track -> Lost -> Reacquire/Search
+    * on loss, breifly search near the predicted direction, then widen view (if possible, else scan)
+  - important HW specs
+    * pan/tilt speed with full payload
+      - determines how well the system can handle close passes
+    * angular acceleration and settling behavior
+      - determines response to target turning/changing direction
+    * command-to-motion latency
+      - part of the tracking delay budget
+    * encoder feedback and timestamps
+      - helps separate camera motion and target motion
+    * backlash, vibration, and pointing repeatability
+      - affects image stability and control
+    * continuous velocity control
+      - enables smoother visual servoing
+    * cable routing and travel limits
+      - prevents interruptions during extended pans
+  - log target image position, mount angles, frame age, and command timing
+    * to distinguish detector failures from control-loop failures
 
-* MOSFET AEG Trigger Circuit
-  - put decoupling cap and back-EMF diode on AEG's DC motor
-    * put them right on the motor terminals (avoid lead inductance)
-  - MOSFET circuit
-    * DC Motor connects between voltage source and Drain
-    * Source connects to ground
-    * pull-up resistor from Gate to motor voltage source to ensure it's turned on when trigger signal is high
-    * maybe use the 20V supply voltage to run the AEG motor
-      - if so, need to recalibrate firing rate
-  - Motor supply must support high in-rush and high sustained current
-  - use IRF540 because it has a lower Vth than the IRF520
-  - 3.3V still isn't enough to fully saturate the IRF540
-    * need to drive Gate to higher voltage (around 4.6V)
-    * have to drive FET into saturation/low R
-  - use 2N3904 to act as a level shifter from 3.3V input from controller to >5V output to Gate
-  - RP2040 puts all GPIOs into HiZ state while loading (booting?)
-    * need to make sure that the trigger doesn't activate during load/reboot
-    * use pull-down resistor on input to level shifting transistor
-  - 
+* one or more fixed-FOV cameras and a PZT camera
+  - processing loop
+    * fixed wide-FOV camera(s) detects targets and maintains wide-view tracks
+    * select target and pointing direction from wide view
+    * slew PZT camera toward target
+    * acquire target with PZT camera
+    * close-up visual tracking controls PZT
+      - classification and recording done from PZT camera video
+    * if target lost, reacquire using wide-FOV camera(s)
+  - two major operating modes
+    * sensor input for target detection: DETECTION mode
+      - can be the wide-FOV camera, lidar, thermal, other, or combinations
+    * wide-FOV camera(s) guidance for initial pointing and recovery: ACQUISITION mode
+    * PZT-camera feedback for precise centering of acquired target: TRACKING mode
+  - have to figure out which object to track if more than one detected
+    * use some characteristic of the detected targets (e.g., bounding box size, distance, etc.), from the wide-FOV cameras or other sensors to choose target to track
+      - could be based on the target's absolute location, direction, speed, size, or relation to the other detected targets
+    * could also just keep tracking the object with the longest track history
+  - fixed cameras have to be mounted as close to the PZT's optical center as possible
+    * wide-view camera detection gives a viewing ray, not a distance
+    * if cameras are separated the ray doesn't specify where to focus the camera without knowning the range to the target
+      - parallax angle for transverse camera separation 'b' and target distance 'r'
+        * deltaTheta ~ (b / r)
+  - calibration process
+    * calibrate wide-cameras' intrinsics and lens distortion
+    * establish wide-cameras' orientation relative to the mount
+    * measure pan/tilt zero offets and actual angle response
+    * calibrate focused camera at the chosen focal length (if PZT camera is fixed-focus)
+    * check pointing accuracy with stationary targets -- both near and far ones
+  - for a calibrated rectilinear camera, an undistorted pixel can be converted into a viewing ray
+    * q -> K^-1 [u v 1]^T
+    * rotate that ray into the mount's coordinate system, then derive the desired P&T angles
+    * for a fisheye lens, use its calibrated project model instead
+  - start with PZT camera fairly wide (e.g., 20deg) then narrow zoom as tracking improves
+  - doesn't provide range information
+    * can get it by using stereo PZT cameras or another sensor (lidar, RF, etc.)
 
-* Chronograph
-  - use ATmega328p
-    * can also use ATmega2560, ATmega32U4, ATmega1284P
-    * need TIMER1 16-bit timer/counter with external trigger
-      - ATmega328P
-        * Timer/Counter 0: 8-bit
-        * Timer/Counter 1: 16-bit (with Input Capture capability)
-        * Timer/Counter 2: 8-bit
-      - ATmega2560
-        * Timer/Counter 0: 8-bit
-        * Timer/Counter 1: 16-bit (with Input Capture capability)
-        * Timer/Counter 2: 8-bit
-        * Timer/Counter 3: 16-bit (with Input Capture capability)
-        * Timer/Counter 4: 16-bit (with Input Capture capability)
-        * Timer/Counter 5: 16-bit (with Input Capture capability)
-      - ATtiny84
-        * Timer/Counter 0: 8-bit
-        * Timer/Counter 1: 16-bit (with Input Capture capability)
-    * use an Arduino Pro Mini 328 (Sparkfun-like clone)
-      - https://www.sparkfun.com/products/11113
-      - 18x33mm, 0.8mm thin PCB
-      - power and status LEDs
-      - Vin: 5-12VDC, 5V regulator, 150mA
-      - 8x analog pins, 14x digital GPIOs
-      - use FTDI USB to Serial converter
-        * select 5V, also need to hook up DTR
-    * use 5V version
-      - for Arduino IDE: select Arduino Duemilanove
-  - 12864 128x64 OLED display
-    * 3-5V input (i/o is 5V tolerant)
-    * SSD1306 controller
-    * I2C interface, address: 0x3C
-    * v1.1 is all white, -13 is yellow on top and blue below
-      - 2x rows (32px) of yellow and 6x (96px) rows of blue
-  - two sets of IR transmitter-receiver pairs
-    * interrupt IR beam to mark start and end of pellet transit over fixed distance
-    * pull up IR LED with 200 ohms to Vcc, and pull down via GPIO
-      - Vcc=5V, Ilo=20mA, IR LED: 1.2V forward drop
-    * IR photodiode
-      - anode to Vcc
-      - cathode to pull-down and GPIO input
-      - 120K ohm pull-down resistor
-    * IR emitter
-      - anode to 180 ohm resistor to Vcc
-      - cathode to GPIO output (ATmega328p can pull down 20mA)
-  - calibration tests
-    * distance between start and end sensors: 40mm
-    * drop pellet from top of compression fitting (30mm from start sensor)
-    * v = 1/2 * g * t^2
-    * g = 9.8 m/s^2
-    * d_1 = 30mm = 0.03 m
-    * d_2 = 40mm = 0.04 m
-    * t = sqrt((2 * d) / 9.8)
-    * t_1 = sqrt((2 * 0.03) / 9.8) = 0.0782 secs
-    * t_2 = sqrt((2 * (0.03 + 0.04)) / 9.8) = 0.1195 secs
-    * t_d = (t_2 - t_1) = 0.0413 secs
-    * v_avg = (d_2 / t_d) = (0.04 / 0.0413) = 0.9685 m/s
-    * N.B. these numbers assume falling in a vacuum (and doesn't touch the walls)
+* Hybrid SW approach
+  - classical motion processing and geometric control for speed
+  - learned detection for target recognition
+  - temporal tracking to connect observations
 
-* Pololu DRV8876 board
-  - one motor channel
-  - 1.3 A max continuous current (no heat sink)
-  - adjustable current limiting
-    * 2 A default
-    * adjustable by pot/resistor across empty pads in bottom left of board
-  - $6.95 (1 unit)
-  - protection
-    * under-voltage lockout
-    * over-current and over-temperature
-    * reverse-voltage
-  - modes:
-    * Phase/Enable (PH/EN): ?
-    * PWM (IN/IN): ?
-    * Independent half-bridge control: ?
-  - logic voltage: 1.8-5.5 V
-  - PWM input: <=100 kHz
-  - pins
-    * Current Sense (CS): analog output, 2500 mV/A
-      - really noisy and have to either avg/filter or sample fast and avg
-      --> not using this
-    * Sleep (/SLEEP)
-      - active low, put device to low-power sleep
-      - starts up in sleep mode, logic high input brings out of sleep
-      - takes Tsleep (1ms) to take effect
-      - reads strapping pin states when in sleep mode
-        * takes effect when coming out of sleep mode (rising edge of /SLEEP)
-    * Motor Power (VIN): 4.5-37 V motor voltage input, reverse-voltage protected [use this]
-    * Motor Voltage (VM): motor voltage after reverse-voltage protection
-      - can use this to supply reverse-voltage protected voltage
-      - need put decoupling caps on this
-        --> already on the Pololu board
-    * Operating Mode (PMODE):
-      - 0/low: Phase/Enable mode, EN=PWM
-        * PH=1: forward/brake at PWM% speed
-        * PH=0: reverse/brake at PWM% speed
-        * PH=PWM, EN=1/high
-          - locked-antiphase mode
-            * 0%: full speed in one direction
-            * 50%: stop
-            * 100%: full speed in the other direction
-      - can do more advanced operations, but I'm using this mode
-        * allows me to jog the feeder back and forth to help clear jams
-    * OUT1/OUT2: goes to motor
-    * Current Regulation and Protection Mode (IMODE)
-      - four possible modes, based on state of pin
-        * GND: fixed off-time, automatic retry, overcurrent only
-        * 20K to GND: cycle-by-cycle, automatic retry, both current chopping and overcurrent
-        * 62K to GND: cycle-by-cycle, outputs latched off, both current chopping and overcurrent
-        * HiZ: fixed off-time, outputs latched off, overcurrent only
-      - Overcurrent
-        * disables outputs and enters a brake state for Toff time
-          - in brake state both low-side MOSFETs are turned on
-        * if EN or PH pins change during Toff:
-          - exits Break state, resets and follows inputs again
-        * Toff: 25 usec
-        * Tdelay: 1.6 usec
-      - Fixed Off-Time Current Chopping
-        * can use 100% duty cycle in this mode
-      - Cycle-by-Cycle Current Chopping
-        * can't use 100% duty cycle in this mode
-          - needs a new control input edge to exist Break state
-        * pulls /FAULT pin low when chopping
-      - Auto-Retry mode
-        * if over-current for more than Tocp (3 usec)
-          - disables MOSFETs and drives /FAULT low for Tretry (2 msec)
-          - resets based on control inputs
-            * resumes normal operation, repeats if still over-current
-      - Latched-Off mode
-        * disables MOSFETs, drives /FAULT low until reset
-          - resets by /SLEEP pin or removing power (via VM)
-    * Fault (/FAULT)
-      - active low (open-drain), indicates over-current/-temperature
-      - needs pull-up resistor (or PULLUP pin mode in Arduino)
-        * 10K pullup works better than internal pull-up mode [don't know why]
-      - just an indication, doesn't change operation
-      - fault indicates current chopping if driving motor forward/reverse
-        * otherwise its a device fault
-        * if /FAULT=LOW and control inputs selecting hi-Z or slow-decay
-          - then it's a device fault
-  - need add a heat-sink as it gets hot
-  - Tsleep: time to sleep from when nSleep=LOW
+* Target Detection and Tracking
+  - Detection: locates and object in an image
+  - Classification: assigns a category to a detected object
+  - Tracking: links observations over time and estimates future motion; assigns IDs to tracked objects
+  - Recognition: distinguishes categories, and in the limit, individual identities
 
-* Xiao RP2040
-  - A0 values connected to CS (avg over 10 samples)
-    * strong 2 KHz noise at slow speeds, to 1 KHz at full speed
-      - this is the PWM frequency set in the test code
-    * no load signal at different speeds (avg, voltage)
-      - grounded: 0.3-0.4, n/a
-      - 0%:   .7-.9, (Vmax=0mV,   Vmin=0mV,   Vavg=0mV)
-      - 10%:  1-6,   (Vmax=222mV, Vmin=35mV,  Vavg=111mV)
-      - 20%:  1-8,   (Vmax=275mV, Vmin=15mV,  Vavg=111mV)
-      - 30%:  1-10,  (Vmax=315mV, Vmin=19mV,  Vavg=127mV)
-      - 40%:  1-10,  (Vmax=356mV, Vmin=18mV,  Vavg=140mV)
-      - 50%:  1-11,  (Vmax=375mV, Vmin=12mV,  Vavg=147mV)
-      - 60%:  1-11,  (Vmax=371mV, Vmin=3mV,   Vavg=150mV)
-      - 70%:  1-11,  (Vmax=356mV, Vmin=3mV,   Vavg=147mV)
-      - 80%:  1-11,  (Vmax=318mV, Vmin=9mV,   Vavg=145mV)
-      - 90%:  2-6,   (Vmax=272mV, Vmin=57mV,  Vavg=149mV)
-      - 100%: 4-6,   (Vmax=208mV, Vmin=109mV, Vavg=150mV)
-    * loaded: Vavg goes up significantly
-    * CS reflects the PWM frequency
-      - need to sample fast enough (>nyquist) to get good avg in SW
-      - created a LPF with R=100K and C=.1uF to smooth the noise
-    * 
+* Classic Vision and ML Tracking techniques
+  - optical flow
+    * estimates local image movement between frames
+    * detects all motion, not just that of intended targets
+  - template correlation/tracking
+    * follows initialized image patch without repeated category detection
+    * can drift or lose the target when appearance changes
+  - Kalman prediction plus assignment
+    * predicts motion and associated multiple detection efficiently
+    * struggles with abrupt turns and long gaps in observation
+  - learned appearance embeddings
+    * tiny, blurred, similar-looking targest offer weak identity cues
+  - learned visual trackers
+    * learn how to match a target across frames
+    * need testing for small targets, occlusion, and specific backgrounds
+  - classical motion is useful for fixed wide-FOV cameras' flow
+    * Background/motion candidates
+    * Native-resolution candidate crops
+    * learned target detector
+    * motion prediction and detection association
+    * target selection and predicted pointing direction
+  - inexpensive scene-wide detection and only spend ML compute on likely locations
+    * still need to deal with stationary targets
+  - background subtraction is not useful when the PZT camera moves
+    * use learned detection to acquire targets
+    * use a local tracker between detections
+    * encoder feedback or image registration to account for camera movement
+    * geometric conversion from image error to P&T commands
+    * use wide-FOV camera guidance when close-up track fails
+  - empirically compare different pipelines
+    * motion dtection plus classical association
+    * learned detection plus classical association
+    * motion-guided learned detection plus classical association
+    * the best of the above approaches, with a faster local tracker between detections
+  - measure
+    * target detection recall: how often are visible targets found
+    * false postives per minute
+    * track fragmentation and ID switches
+    * localization error: imprtant for pointing the PZT camera
+    * frame age when the control command is issued
+    * acquistion time and percentage of time the target remains focused in view
+  - make sure that training is done in different environments so it doesn't overfit on the specific locale
+  - instead of an end-to-end learned system, start with a hybrid approach:
+    * classical motion proposals on the fixed camera
+    * a learned target detector for confirmation
+    * classical state estimation and association for track continuity
+    * calibrated geometric pointing and a measured-latency servo loop
+    * close-up tracking with periodic detector correction
 
-* Airsoft data
-  - Kinetic Energy: 1/2mv^2
-      - 0.2g  6mm pellet at 400 FPS (122 m/s): 1.5 J
-      - 0.2g  6mm pellet at 500 FPS (152 m/s): 2.3 J
-      - 0.2g  6mm pellet at 600 FPS (183 m/s): 3.3 J
-      - 0.25g 6mm pellet at 360 FPS (110 m/s): 1.5 J
-      - 0.35g 6mm pellet at 450 FPS (137 m/s): 3.3 J
-      - 0.4g  6mm pellet at 600 FPS (183 m/s): 6.7 J
-  - Safety
-    * energy levels
-      - safe:   <2 J
-      - strong: >2 J && <4 J
-      - unsafe: >4 J
-    * values in different regulations
-      -    1.35 J: penetrating wound
-      - 3.0-4.0 J: penetrating/leathal wound
-      - 2.0-3.0 J: penetration level
-    * human skin penetration (> 1/2 diameter of pellet)
-      - 162.1e^(-0.38sqrt(m))
-      - e.g., 0.2 g @ 136.7 m/s (448 FPS) -- possible with AEG
-  - Velocity Range
-    * AEG: 46-198 m/s (150-650 fps)
-    * HPA: 55-226 m/s (180-740 fps); dynamically variable
-  - Pellet Weights
-    * 0.2-0.49 g
-  - Rate of Fire (estimated max rate)
-    * HPA: 2100-3600 pellets/min,   35-60 pellets/sec,  28.5-16.7 msec/pellet
-    * AEG:  100-1500 pellets/min, 1.67-25 pellets/sec, 598.8-40.0 msec/pellet
-  - Barrel Length
-    * 221-430 mm
-  - Distance between pellets in flight
-    * ?
-    * time through barrel: ?
-  - AEG Piston-Barrel Volume Ratio
-    * 2:1
-  - Typical AEG
-    * Velocity: 120 m/s (~400 fps)
-    * Energy @ Distance
-      - 1.4 J @  0 m
-      -   1 J @  5 m
-      - 0.6 J @ 10 m
-      - 0.3 J @ 20 m
-  - Ballistics
-    * velocity drops exponentially with distance (due to the quadratic drag)
-    * simple equation describes ideal (no hop-up, no wind) distance for given pellet diameter, weight, and speed
-      - e.g., 6mm 0.2g 120m/s 1.8m height: hits ground at 34m
+* can't count on appearance-based re-identification for hummingbirds or drones
+  - can track a target while it remains in view
+  - hard to determine if it's the same one or a different one if a target goes out of view and then returns
 
-* Links
-  - https://www.pololu.com/product/4036
-  - https://www.pololu.com/product/4037
-  - https://en.wikipedia.org/wiki/Airsoft_pellets
-  - 
+* PZT platform
+  - assume 200-300g payload, compact and well balanced cradle
+  - specs at P&T axis (not motor shaft)
+    * max tracking/slew speed: P = T = 300 deg/s
+    * angular acceleration:    P = T = 3,000 deg/s^2
+    * peak torque:             P = 0.3--0.6 N-m, T = 0.15-0.3 N-m
+    * continuous torque:       P = 0.1--0.2 N-m, T = 0.05-0.15 N-m
+    * angular resolution:      P = T = 0.001--0.01 deg
+  - pan/tilt geometries typically have a singularity at the directly overhead position
+  - need to define the operating envelop in terms of what it can and can't do
+  - acceleration matters as much as top speed
+    * at 3000 deg/s^2, accelerating from rest to 300deg/s takes 100ms
+    * reversing from 150deg/s to -150deg/s also takes 100ms
+    * an ideal 90deg acquistion takes about 400ms, including acceleration and breaking times
+  - real motion takes even longer when jerk limits, structural vibration, controller delay, and settling are taken into account
+  - most meaningful spec is loaded speed-torque capability with actual payload intertia
+  - calculate torque separately for each axis
+  - pan axis doesn't create a direct driving torque
+    * but it has to move the whole assembly, so the inertia will be greater than the tilt axis'
+  - adding weight to balance payloads results in higher intertia
+  - resolution specs
+    * Command Resolution: smallest angle increment that the controller accepts
+    * Encoder Resolution: smallest reported angular increment
+    * Actual Positioning Accuracy: difference between the requested and physical angle
+    * Backlash/Repeatability: how consistently the axis responds, particularly after reversing direction
+  - for 20-30deg PZT view
+    * Output feedback resolution: 0.005 deg or better
+    * Low-speed pointing repeatability: 0.02 deg or better
+    * Reversal backlash/deadband: below 0.02 deg
+    * Stationary angular jitter: 0.01 deg RMS or less
+    * 16-18bit encoder
+  - possible motor choices
+    * Teknic CPM-SDSK-2310S-ELN
+      - NEMA 23, with Enhanced Resolution
+      - Peak torque (at 75 VDC): 1.6 N·m (226.6 oz-in)
+      - Continuous RMS torque (at 75 VDC): 0.3 N·m (42.48 oz-in)
+      - Maximum speed (at 75 VDC): 4,000 rpm
+      - Achievable positioning resolution: Approximately 0.057°
+      - Repeatability: 0.03°
+      - Rotor inertia: 0.1 kg·cm²
+      - Control interface: Step/direction or quadrature A/B
+      - Weight: 600 g [more than the payload/camera]
+￼     - use this motor with 10:1--15:1 reduction (15:1)
+    * Teknic CMP-SCSK-2310S-ELNB <<<=== good choice
+      - NEMA 23, with Enhanced Resolution and Basic firmware
+      - SW-controlled step and dir
+      - Peak Torque at speed at 75VDC: 64 oz-in, 4000 RPM
+      - Continuous Torque at 75VDC: 13 oz-in
+      - Max Speed at 75VDC: 4000 RPM
+      - Resolution: 0.057 deg
+      - Repeatability: 0.03 deg
+      - Rotor Inertia: 0.1 kg-cm^2
+      - Weight: 0.6 kg
+      - Max Radial Load: 111.2 N
+      - Max Thrust Load: 22.2 N
+      - Price: $368
+    * Teknic CMP-SCSK-2310P-ELNB
+      - NEMA 23, with Enhanced Resolution and Basic firmware
+      - SW-controlled step and dir
+      - Peak Torque at speed at 75VDC: 112 oz-in, 4000 RPM
+      - Continuous Torque at 75VDC: 22.5 oz-in
+      - Max Speed at 75VDC: 4000 RPM
+      - Resolution: 0.057 deg
+      - Repeatability: 0.03 deg
+      - Rotor Inertia: 0.1 kg-cm^2
+      - Weight: 0.6 kg
+      - Max Radial Load: 111.2 N
+      - Max Thrust Load: 22.2 N
+      - Price: $368
+    * Teknic CPM-ECSK-1730P-ELNB
+      - NEMA 17, with Enhanced Resolution and Basic firmware
+      - EtherCAT interface
+      - Peak Torque at speed at 75VDC: 34 oz-in, 1000 RPM
+      - Continuous Torque at 75VDC: 27.5 oz-in
+      - Max Speed at 75VDC: 1000 RPM
+      - Resolution: 0.007 deg
+      - Repeatability: 0.007 deg
+      - Rotor Inertia: 0.1 kg-cm^2
+      - Weight: 0.1 kg
+      - Max Radial Load: 111.2 N
+      - Max Thrust Load: 25.7 N
+      - Price: $435
+    * Teknic CPM-ECHP-1730P-ELNB
+      - NEMA 17, with Enhanced Resolution and Basic firmware
+      - EtherCAT
+      - Peak Torque at speed at 75VDC: 43 oz-in, 3000 RPM
+      - Continuous Torque at 75VDC: 34.1 oz-in
+      - Max Speed at 75VDC: 3000 RPM
+      - Resolution: 0.007 deg
+      - Repeatability: 0.007 deg
+      - Rotor Inertia: 0.1 kg-cm^2
+      - Weight: 0.1 kg
+      - Max Radial Load: 111.2 N
+      - Max Thrust Load: 25.7 N
+      - Price: $499
+
+* Teknic ClearPath products "stepper killer"
+  - servo for the price of stepper, with 2-3x more power
+  - MC: digital I/O motion control
+  - SD: control with Step & Direction
+    * Enhanced SDSK: step/direction interface, with enhanced resolution
+  - SC: SW controlled (Free C++ library)
+    * Enhanced Firmware: provides more features over Basic Firmware
+      - g-Stop anti-vibration move profiles
+      - Triggered moves
+      - Head-tail moves
+      - Asymmetric moves
+      - Trigger events at user-defined positions
+      - Pos/Neg torque limiting
+      - Conditional torque limiting
+      - Attention generation
+      - Position capture
+  - IP: Ethernet/IP controlled, needs master controller
+  - EC: EtherCAT controlled, needs master controller
+    * Enhanced ClearPath-EC, EtherCAT interface, with enhanced resolution
+    * EtherCAT, cyclic synchronous control modes
+      - min EtherCAT cycle time of 250usec -- provides position/velocity/torque at that rate
+    * requires EtherCAT master and SW integration
+    * NEMA-17 version might be smaller/lighter and easier to integrate
+    * 51,200 counts/rev for Enhanced EC -- 0.00703 deg/count
+      - closer to direct drive requirements
+    * EtherSAT controllers
+      - best choice is RK3588 board with PREEMPT_RT
+        * RTOnBoot or IgH 1.6
+
+* computing requirements
+  - on-board vs. remote
+  - control-loop processing has to be local for latency reasons
+  - can remotely provide higher-level supervision and guidance (longer time constants)
+  - can use RasPi 4/5, NVDA Tegra/Orin Nano/etc.
+  - ????
+
+* Open questions
+  - how do detect stationary targets -- e.g., hovering drone/hummingbird
+    * either by an visual object classifier or a different type of sensor (e.g., lidar, thermal)
+
+* commercial products
+  - IdentiFlight
+    * https://www.identiflight.com/
+    * eight-camera array of wide FOV cameras and stereo PT high-res stereo tracking cameras
+    * uses "NN technology" with high-res stereo cameras to determine distance and classify bird type, "in msecs"
+      - 3 weeks to train for a new species
+      - < 1% false negatives
+      - < 2 sec classification [what about milliseconds claim above?]
+    * determines 3D position, velocity, trajector, and predicted species of interest in realtime
+      - 96% distance accuracy
+      - 98% wingspan accuracy
+      - 166 Mpix image data at > 5 imgs/s
+    * detect and classify with 99% accuracy
+    * up to 1.3km in distance
+    * analyzes flight paths, shuts down wind farm if critical species detected
+    * mounted on 6m high pole
+
+* References
+  - PAN & TILT PLATFORM FOR A THERMAL VACUUM VIDEO CAMERA
+    * https://ntrs.nasa.gov/api/citations/20070011748/downloads/20070011748.pdf
