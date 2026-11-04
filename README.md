@@ -196,101 +196,35 @@ tracking of a single target will be
     * Stationary angular jitter: 0.01 deg RMS or less
     * 16-18bit encoder
 
-==> move this to the ClearPath repo and put references here
-* Teknic "Stepper-Killer" Servos
-  - possible motor choices
-    * Teknic CPM-SDSK-2310S-ELN
-      - NEMA 23, with Enhanced Resolution
-      - Peak torque (at 75 VDC): 1.6 N·m (226.6 oz-in)
-      - Continuous RMS torque (at 75 VDC): 0.3 N·m (42.48 oz-in)
-      - Maximum speed (at 75 VDC): 4,000 rpm
-      - Achievable positioning resolution: Approximately 0.057°
-      - Repeatability: 0.03°
-      - Rotor inertia: 0.1 kg·cm²
-      - Control interface: Step/direction or quadrature A/B
-      - Weight: 600 g [more than the payload/camera]
-￼     - use this motor with 10:1--15:1 reduction (15:1)
-    * Teknic CMP-SCSK-2310S-ELNB <<<=== good choice
-      - NEMA 23, with Enhanced Resolution and Basic firmware
-      - SW-controlled step and dir
-      - Peak Torque at speed at 75VDC: 64 oz-in, 4000 RPM
-      - Continuous Torque at 75VDC: 13 oz-in
-      - Max Speed at 75VDC: 4000 RPM
-      - Resolution: 0.057 deg
-      - Repeatability: 0.03 deg
-      - Rotor Inertia: 0.1 kg-cm^2
-      - Weight: 0.6 kg
-      - Max Radial Load: 111.2 N
-      - Max Thrust Load: 22.2 N
-      - Price: $368
-    * Teknic CMP-SCSK-2310P-ELNB
-      - NEMA 23, with Enhanced Resolution and Basic firmware
-      - SW-controlled step and dir
-      - Peak Torque at speed at 75VDC: 112 oz-in, 4000 RPM
-      - Continuous Torque at 75VDC: 22.5 oz-in
-      - Max Speed at 75VDC: 4000 RPM
-      - Resolution: 0.057 deg
-      - Repeatability: 0.03 deg
-      - Rotor Inertia: 0.1 kg-cm^2
-      - Weight: 0.6 kg
-      - Max Radial Load: 111.2 N
-      - Max Thrust Load: 22.2 N
-      - Price: $368
-    * Teknic CPM-ECSK-1730P-ELNB
-      - NEMA 17, with Enhanced Resolution and Basic firmware
-      - EtherCAT interface
-      - Peak Torque at speed at 75VDC: 34 oz-in, 1000 RPM
-      - Continuous Torque at 75VDC: 27.5 oz-in
-      - Max Speed at 75VDC: 1000 RPM
-      - Resolution: 0.007 deg
-      - Repeatability: 0.007 deg
-      - Rotor Inertia: 0.1 kg-cm^2
-      - Weight: 0.1 kg
-      - Max Radial Load: 111.2 N
-      - Max Thrust Load: 25.7 N
-      - Price: $435
-    * Teknic CPM-ECHP-1730P-ELNB
-      - NEMA 17, with Enhanced Resolution and Basic firmware
-      - EtherCAT
-      - Peak Torque at speed at 75VDC: 43 oz-in, 3000 RPM
-      - Continuous Torque at 75VDC: 34.1 oz-in
-      - Max Speed at 75VDC: 3000 RPM
-      - Resolution: 0.007 deg
-      - Repeatability: 0.007 deg
-      - Rotor Inertia: 0.1 kg-cm^2
-      - Weight: 0.1 kg
-      - Max Radial Load: 111.2 N
-      - Max Thrust Load: 25.7 N
-      - Price: $499
+==> put references to the ClearPath repo/docs here
+  - I want to use two CPM-SCSK-2311S-EQNA (or EQSA) servos for the axes
+    * enhanced resolution, 1/4" shaft, advanced feature set
+      - prefer liquid-tight seal, but can live with standard dust seal
+    * $429
 
-* Teknic ClearPath products "stepper killer"
-  - servo for the price of stepper, with 2-3x more power
-  - MC: digital I/O motion control
-  - SD: control with Step & Direction
-    * Enhanced SDSK: step/direction interface, with enhanced resolution
-  - SC: SW controlled (Free C++ library)
-    * Enhanced Firmware: provides more features over Basic Firmware
-      - g-Stop anti-vibration move profiles
-      - Triggered moves
-      - Head-tail moves
-      - Asymmetric moves
-      - Trigger events at user-defined positions
-      - Pos/Neg torque limiting
-      - Conditional torque limiting
-      - Attention generation
-      - Position capture
-  - IP: Ethernet/IP controlled, needs master controller
-  - EC: EtherCAT controlled, needs master controller
-    * Enhanced ClearPath-EC, EtherCAT interface, with enhanced resolution
-    * EtherCAT, cyclic synchronous control modes
-      - min EtherCAT cycle time of 250usec -- provides position/velocity/torque at that rate
-    * requires EtherCAT master and SW integration
-    * NEMA-17 version might be smaller/lighter and easier to integrate
-    * 51,200 counts/rev for Enhanced EC -- 0.00703 deg/count
-      - closer to direct drive requirements
-    * EtherSAT controllers
-      - best choice is RK3588 board with PREEMPT_RT
-        * RTOnBoot or IgH 1.6
+  - mechanical transmission
+    * provisional requirements
+      -  300°/s maximum axis speed
+      -  3,000°/s² acceleration
+      -  0.005–0.01° command increments at the turret output
+    * current strawman approach
+      - use 9mm GT2 timing belts -- e.g., 400mm pre-made loop
+      - 10:1 drive ratio, 16-tooth pulley on motor, 160-tooth pulley on axis
+        * need at least 6-tooth wrap -- use idlers if necessary
+        * want to minimize the distance between the pulleys
+    * gears have backlash issues
+  - bearings
+    * Az axis
+      - a trunion, can use standard bearings
+    * El axis
+      - need to handle loads outside of the rotational axis
+        * need something like 200mm cross-roller bearings
+          - very big, heavy, and expensive
+      - lazy-susan are poor in terms of accuracy and longevity
+      - has to handle rapid acceleration/deceleration and high-speed operation (but not sustained)
+  - electrical power transmission
+    * Az axis: ?
+    * El axis: ?
 
 ### Computing Resources
   - on-board vs. remote
@@ -364,7 +298,42 @@ tracking of a single target will be
       - UYUV:  1920 × 1080 @ 60 fps
       - MJPEG: 1280 × 720  @ 100 fps
       - MJPEG: 1920 × 1080 @ 100 fps
+    * Formats actually enumerated on Orin (v4l2-ctl, 2026-11-04, camera linked at USB 2.0/480M):
+      - UYVY:  1280 × 720 @ 15, 1920 × 1080 @ 8, 1920 × 1200 @ 6 fps
+      - MJPEG: 1280 × 720 @ 120/60, 1920 × 1080 @ 120/60/30, 1920 × 1200 @ 114/60 fps
+      - must be on a USB 3 port/cable for full UYVY rates (and sustained MJPEG at 120fps)
+      - measured on USB 3 (record.py, 10s): 1080p60 MJPEG = 16.65ms mean interval, 1 drop;
+        1080p120 MJPEG delivers only ~110-114fps (8.8-9.1ms mean) with no sequence drops -- camera-side
     * MJPEG quality: selectable quality factor
+  - See3CAM_24CUG is the camera for initial testing (Phase 1)
+  - Candidate for wide-area detection: Arducam B0397 (12MP*4 Quadrascopic Camera Bundle Kit)
+    * https://www.arducam.com/12mp4-quadrascopic-camera-bundle-kit-b0397.html
+    * Sensors: 4x Sony IMX477, 1/2.3", ROLLING shutter
+    * Lenses: M12, 3.9mm, F/2.8, ~75deg H x 56deg V each, manual focus, IR-cut
+    * Interface: UC-512 CamArray HAT, all four cameras multiplexed onto one MIPI CSI-2 port
+      - Orin Nano Super dev kit has two CSI ports -- leaves one free for the PZT camera
+      - JetPack 5.x+ needs CamArray firmware >= 2023.02.03; official carrier board only
+    * Quad-mode output: one combined frame containing all four images
+      - 4056x3040 combined (2028x1520 per camera) at ~10fps
+      - 1920x1080 combined (~960x540 per camera) at half the normal frame rate
+    * Sync: cameras 0/1 synchronized, 2/3 synchronized, 2/3 one frame behind 0/1
+      - need per-pair timestamp correction
+    * No ISP support on Jetson -- expect RAW Bayer; debayer/AE/AWB must be done in SW [confirm with Arducam]
+    * ~$400 (EUR 359)
+  - B0397 concerns for hummingbird detection
+    * rolling shutter -- skew/smear on fast wings and dives, hurts motion detection and pixel-to-ray calibration
+    * low frame rate in quad mode -- at 20fps a 10m/s target moves 0.5m between frames (plan assumes >= 60fps)
+    * four separated optical centers -- worsens parallax vs. turret, and requires four intrinsic + extrinsic calibrations
+  - B0397 advantages
+    * ~180-270deg coverage (with overlap) vs. 102deg for one 24CUG
+    * interchangeable M12 lenses allow trading FOV for pixels per camera
+  - pixels on target -- 100mm body at 4m (p ~ (W * L) / (2 * d * tan(theta / 2)))
+    * 24CUG, 1920 wide, 102.69deg HFOV: ~19 px
+    * B0397, 2028 wide per camera, 75deg HFOV: ~33 px (only in slow full-res mode)
+    * B0397, ~960 wide per camera, 75deg HFOV: ~16 px
+  - alternatives to evaluate before committing
+    * Arducam global-shutter multi-camera kits for Jetson (e.g., OV9281 1MP mono quad kit, check for AR0234-based options)
+    * multiple 24CUGs over USB (each has its own ISP)
 
 * Focused/Mobile Camera
   - MIPI-CSI to direct connect to Orin Nano Super
@@ -576,6 +545,24 @@ tracking of a single target will be
   - measured target pixel sizes
   - realtime motion-detection video overlay
   - decision on UYUV vs. MJPEG
+* software (src/, runs on the Orin with system python3/OpenCV 4.8/GStreamer -- see requirements.txt)
+  - deploy: `rsync -a src/ orinnano.lan:~/Code/AutoTurret/src/`
+  - outputs default to ~/at/ on the Orin
+  - camera.py: See3CAM_24CUG device lookup, manual exposure/gain/WB (raw V4L2 values), GStreamer source
+  - make_charuco.py: generate the 7x5/50mm/35mm DICT_5X5_100 board PNG (300dpi) and board.json
+    * `python3 src/make_charuco.py`
+  - record.py: MJPEG passthrough clips (.mkv, no re-encode) plus .json with settings, control readback, frame timing, and dropped frames (from driver sequence-number gaps)
+    * `python3 src/record.py --seconds 20 --fps 60 --exposure 5 --gain 4 --label feeder`
+  - calibrate.py: ChArUco intrinsics from a record.py clip -- selects sharp, well-spread views, holds out ~15% for validation
+    * `python3 src/calibrate.py ~/at/clips/calib_<ts>.mkv`
+    * writes calib_24cug.json (K, D, RMS, validation RMS, per-view errors) and residual/coverage/undistorted PNGs
+  - motion_detect.py: MOG2 motion candidates, connected components, greedy nearest-neighbour tracks
+    * `python3 src/motion_detect.py ~/at/clips/feeder_<ts>.mkv` (offline) or `python3 src/motion_detect.py --live --seconds 10` (camera)
+    * writes <clip>_overlay.avi, <clip>_candidates.csv (frame, timestamp_ms, track_id, track_hits, box, area), and <clip>_summary.json (processing time, live frame age)
+    * green boxes = tracks with >= --min-track-len hits, orange = unconfirmed candidates
+    * decodes with CPU jpegdec -- nvjpegdec fails on this camera's MJPEG under JetPack 7.2
+    * measured at 1080p60: ~15-19ms/frame processing; live frame age ~42-46ms mean (capture to result)
+  - don't put jpegparse in these pipelines -- it replaces capture timestamps with framerate-interpolated ones
 
 ### Phase 2: ????
 

@@ -74,6 +74,25 @@
       - sel
   - 
 
+* Visual Tracking
+  - classical CV approches have issues
+    * predicting target position has been shown to be difficult
+    * need fast trackers for PTX task
+    * ASMS is an example tracker, so are MEDIANFLOW and NCC
+
+* Tracking multiple objects
+  - classical CV approach used goal pose/image
+    * Visual Servo (VS) control
+    * Image-based Visual Servoing (IBVS)
+    * Position-based Visual Servoing
+    * partitioned methods
+    * switching methods
+  - others suggested regulating image features to keep features in the camera FOV
+      * add a motion function on top to ensure velocities can be acheived
+      * image Jacobian developed using actuation of the focal length
+  - goal pose/image approaches don't do well at keeping multiple moving objects in the FOV
+
+
 * Strawman approach ideas
   - need calibrated geometry to drive the PTZ platform
     * a classical CV problem
