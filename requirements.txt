@@ -1,0 +1,4 @@
+# Uses the Orin's system packages (JetPack 7.2 / L4T R39.2): python3 3.12,
+# OpenCV 4.8 (with aruco, GStreamer and FFMPEG), numpy, python3-gi (Gst 1.0).
+# Don't pip-install opencv on the Orin -- it would shadow the system build.
+# For a venv:  python3 -m venv --system-site-packages venv
