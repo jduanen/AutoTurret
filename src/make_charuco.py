@@ -2,7 +2,8 @@
 """
 Generate the Phase 1 ChArUco calibration board (README: 7x5 squares, 50mm
 squares, 35mm markers, DICT_5X5_100) as a print-ready PNG plus a JSON of the
-board parameters that calibrate.py reads.
+board parameters that calibrate.py reads. --square-mm/--marker-mm make other
+sizes, e.g. 35/24.5 fits US Letter landscape.
 """
 
 import argparse
@@ -12,7 +13,6 @@ import os
 import cv2
 
 SQUARES_X, SQUARES_Y = 7, 5
-SQUARE_MM, MARKER_MM = 50.0, 35.0
 DICTIONARY = "DICT_5X5_100"
 
 
@@ -29,17 +29,19 @@ def main():
     ap.add_argument("--out", default=os.path.expanduser("~/at/board"))
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--margin-mm", type=float, default=10.0)
+    ap.add_argument("--square-mm", type=float, default=50.0)
+    ap.add_argument("--marker-mm", type=float, default=35.0)
     args = ap.parse_args()
 
     params = {"squares_x": SQUARES_X, "squares_y": SQUARES_Y,
-              "square_m": SQUARE_MM / 1000, "marker_m": MARKER_MM / 1000,
+              "square_m": args.square_mm / 1000, "marker_m": args.marker_mm / 1000,
               "dictionary": DICTIONARY}
     board = make_board(params)
 
     px_per_mm = args.dpi / 25.4
     margin = round(args.margin_mm * px_per_mm)
-    w = round(SQUARES_X * SQUARE_MM * px_per_mm) + 2 * margin
-    h = round(SQUARES_Y * SQUARE_MM * px_per_mm) + 2 * margin
+    w = round(SQUARES_X * args.square_mm * px_per_mm) + 2 * margin
+    h = round(SQUARES_Y * args.square_mm * px_per_mm) + 2 * margin
     img = board.generateImage((w, h), marginSize=margin, borderBits=1)
 
     # self-check: the detector should find every inner corner on the clean image
@@ -48,7 +50,7 @@ def main():
     n_found = 0 if ids is None else len(ids)
 
     os.makedirs(args.out, exist_ok=True)
-    png = os.path.join(args.out, "charuco_7x5_50mm.png")
+    png = os.path.join(args.out, f"charuco_{SQUARES_X}x{SQUARES_Y}_{args.square_mm:g}mm.png")
     cv2.imwrite(png, img)
     with open(os.path.join(args.out, "board.json"), "w") as f:
         json.dump(params, f, indent=2)
