@@ -3,8 +3,9 @@
 Record MJPEG passthrough clips from the See3CAM_24CUG (no re-encoding).
 
 Writes <label>_<timestamp>.mkv and a matching .json with capture settings,
-control readback, per-frame timing stats, and dropped frames (from gaps in the
-driver's frame sequence numbers).
+control readback, per-frame timing stats, and dropped frames (counted from gaps
+in the capture timestamps -- the driver's sequence numbers miss frames the camera
+never delivered).
 """
 
 import argparse
@@ -43,14 +44,15 @@ def main():
     Gst.init(None)
     pipeline = Gst.parse_launch(
         camera.source_pipeline(dev, width, height, args.fps)
+        # queue gives capture its own thread: without it, mux/write stalls starve the
+        # driver of buffers and the camera silently runs slow (~110 fps at 120)
+        + " ! queue max-size-buffers=240 max-size-bytes=0 max-size-time=0"
         + f" ! matroskamux ! filesink location={stem}.mkv")
 
-    pts, seq = [], []
+    pts = []
 
     def on_buffer(pad, info):
-        buf = info.get_buffer()
-        pts.append(buf.pts)
-        seq.append(buf.offset)  # driver frame sequence number
+        pts.append(info.get_buffer().pts)
         return Gst.PadProbeReturn.OK
 
     pipeline.get_by_name("src").get_static_pad("src").add_probe(
@@ -83,7 +85,8 @@ def main():
     pipeline.set_state(Gst.State.NULL)
 
     intervals = [(b - a) / 1e6 for a, b in zip(pts, pts[1:])]
-    dropped = sum(b - a - 1 for a, b in zip(seq, seq[1:]))
+    period_ms = 1000.0 / args.fps
+    dropped = sum(max(0, round(d / period_ms) - 1) for d in intervals)
     meta = {
         "file": os.path.basename(stem + ".mkv"),
         "device": dev,
@@ -91,6 +94,7 @@ def main():
         "width": width, "height": height, "fps": args.fps, "format": "MJPG",
         "controls": ctrls,
         "frames": len(pts),
+        "fps_measured": (len(pts) - 1) / ((pts[-1] - pts[0]) / 1e9) if len(pts) > 1 else None,
         "interval_ms_mean": sum(intervals) / len(intervals) if intervals else None,
         "interval_ms_max": max(intervals) if intervals else None,
         "dropped": dropped,
@@ -98,7 +102,7 @@ def main():
     with open(stem + ".json", "w") as f:
         json.dump(meta, f, indent=2)
     print(json.dumps({k: meta[k] for k in
-                      ("file", "frames", "interval_ms_mean", "interval_ms_max", "dropped")},
+                      ("file", "frames", "fps_measured", "interval_ms_mean", "interval_ms_max", "dropped")},
                      indent=2))
 
 

@@ -35,16 +35,19 @@ class Tracker:
 
     def update(self, frame_no, centroids):
         """Return the track id assigned to each centroid."""
-        pairs = sorted(
-            (np.hypot(c[0] - t["pos"][0], c[1] - t["pos"][1]), ci, tid)
-            for ci, c in enumerate(centroids) for tid, t in self.tracks.items())
-        assigned, used = [None] * len(centroids), set()
-        for dist, ci, tid in pairs:
-            if dist > self.max_jump:
-                break
-            if assigned[ci] is None and tid not in used:
-                assigned[ci] = tid
-                used.add(tid)
+        assigned = [None] * len(centroids)
+        tids = list(self.tracks)
+        if tids and centroids:
+            c = np.asarray(centroids)
+            p = np.array([self.tracks[tid]["pos"] for tid in tids])
+            d = np.hypot(c[:, None, 0] - p[None, :, 0], c[:, None, 1] - p[None, :, 1])
+            ci, ti = np.nonzero(d <= self.max_jump)  # only gated pairs
+            used = set()
+            for k in np.argsort(d[ci, ti], kind="stable"):
+                a, b = ci[k], ti[k]
+                if assigned[a] is None and b not in used:
+                    assigned[a] = tids[b]
+                    used.add(b)
         for ci, c in enumerate(centroids):
             if assigned[ci] is None:
                 assigned[ci] = self.next_id
@@ -65,7 +68,8 @@ def build_pipeline(args):
         dev = args.device or camera.find_device()
         camera.set_controls(dev, args.exposure, args.gain, args.wb)
         w, h = (int(v) for v in args.size.split("x"))
-        src = camera.source_pipeline(dev, w, h, args.fps)
+        # leaky queue decouples capture from decode so the camera never stalls
+        src = camera.source_pipeline(dev, w, h, args.fps) + " ! queue leaky=downstream max-size-buffers=2"
         sink_opts = " drop=true max-buffers=1 sync=false"  # never process stale frames
     else:
         src = f"filesrc location={args.source} ! matroskademux"
@@ -91,6 +95,8 @@ def main():
     ap.add_argument("--min-area", type=int, default=20, help="pixels")
     ap.add_argument("--max-area", type=int, default=20000, help="pixels")
     ap.add_argument("--max-aspect", type=float, default=6.0)
+    ap.add_argument("--max-candidates", type=int, default=50,
+                    help="keep only the largest N per frame (bounds cost in noisy scenes)")
     ap.add_argument("--max-jump", type=float, default=150.0, help="pixels per frame")
     ap.add_argument("--max-missed", type=int, default=5, help="frames before a track is dropped")
     ap.add_argument("--min-track-len", type=int, default=3, help="hits before a track is drawn")
@@ -117,7 +123,7 @@ def main():
                    "x", "y", "w", "h", "area"])
     writer = None
 
-    proc_ms, age_ms = [], []
+    proc_ms, age_ms, frames_capped = [], [], 0
     frame_no, t_end = 0, time.monotonic() + args.seconds
     while not (args.live and time.monotonic() > t_end):
         sample = sink.emit("try-pull-sample", 5 * Gst.SECOND)
@@ -136,15 +142,16 @@ def main():
         fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, kernel)
         fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, kernel)
         n, _, stats, cents = cv2.connectedComponentsWithStats(fg, connectivity=8)
-        boxes, centroids = [], []
-        for i in range(1, n):
-            x, y, bw, bh, area = stats[i]
-            if not (args.min_area <= area <= args.max_area):
-                continue
-            if max(bw, bh) / max(1, min(bw, bh)) > args.max_aspect:
-                continue
-            boxes.append((x, y, bw, bh, area))
-            centroids.append(tuple(cents[i]))
+        st, ce = stats[1:], cents[1:]  # drop background label
+        area = st[:, 4]
+        aspect = np.maximum(st[:, 2], st[:, 3]) / np.maximum(1, np.minimum(st[:, 2], st[:, 3]))
+        keep = np.nonzero((area >= args.min_area) & (area <= args.max_area)
+                          & (aspect <= args.max_aspect))[0]
+        if len(keep) > args.max_candidates:
+            keep = keep[np.argsort(-area[keep], kind="stable")[:args.max_candidates]]
+            frames_capped += 1
+        boxes = [tuple(int(v) for v in st[i]) for i in keep]
+        centroids = [tuple(ce[i]) for i in keep]
         ids = tracker.update(frame_no, centroids)
 
         proc_ms.append((time.perf_counter() - t0) * 1000)
@@ -186,12 +193,14 @@ def main():
                                     "max": float(np.max(v))}
 
     summary = {"source": "live" if args.live else args.source, "frames": frame_no,
-               "tracks_created": tracker.next_id, "processing_ms": stats(proc_ms),
+               "tracks_created": tracker.next_id, "frames_capped": frames_capped,
+               "processing_ms": stats(proc_ms),
                "frame_age_ms": stats(age_ms), "params": vars(args)}
     with open(os.path.join(args.out, f"{stem}_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
     print(json.dumps({k: summary[k] for k in
-                      ("frames", "tracks_created", "processing_ms", "frame_age_ms")}, indent=2))
+                      ("frames", "tracks_created", "frames_capped", "processing_ms",
+                       "frame_age_ms")}, indent=2))
 
 
 if __name__ == "__main__":
