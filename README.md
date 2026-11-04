@@ -552,12 +552,18 @@ tracking of a single target will be
   - outputs default to ~/at/ on the Orin
   - camera.py: See3CAM_24CUG device lookup, manual exposure/gain/WB (raw V4L2 values), GStreamer source
   - make_charuco.py: generate the 7x5/50mm/35mm DICT_5X5_100 board PNG (300dpi) and board.json
-    * `python3 src/make_charuco.py`
+    * `python3 src/make_charuco.py` (README board, 50/35mm -- needs 11x17/A3)
+    * `python3 src/make_charuco.py --square-mm 35 --marker-mm 24.5 --out ~/at/board_letter` (fits US Letter landscape)
+    * PDF at exact scale on a Letter page: `magick charuco_7x5_35mm.png -background white -gravity center -extent 3300x2550 -units PixelsPerInch -density 300 charuco_7x5_35mm_letter.pdf`
+    * calibrate.py takes `--board ~/at/board_letter/board.json` for the Letter board
   - record.py: MJPEG passthrough clips (.mkv, no re-encode) plus .json with settings, control readback, frame timing, fps_measured, and dropped frames (from capture-timestamp gaps; driver sequence numbers miss frames the camera never sent)
     * `python3 src/record.py --seconds 20 --fps 60 --exposure 5 --gain 4 --label feeder`
   - calibrate.py: ChArUco intrinsics from a record.py clip -- selects sharp, well-spread views, holds out ~15% for validation
     * `python3 src/calibrate.py ~/at/clips/calib_<ts>.mkv`
     * writes calib_24cug.json (K, D, RMS, validation RMS, per-view errors) and residual/coverage/undistorted PNGs
+    * prints/saves a coverage report (board-corner counts in 3x3 zones, outer 15% bands; SPARSE zones flagged)
+      and field angles of the image corners/edge midpoints (H/V FOV, asymmetry, INVALID where the fitted
+      model doesn't invert -- i.e., extrapolated past the data); a usable calibration has no SPARSE or INVALID
   - motion_detect.py: MOG2 motion candidates, connected components, greedy nearest-neighbour tracks
     * `python3 src/motion_detect.py ~/at/clips/feeder_<ts>.mkv` (offline) or `python3 src/motion_detect.py --live --seconds 10` (camera)
     * writes <clip>_overlay.avi, <clip>_candidates.csv (frame, timestamp_ms, track_id, track_hits, box, area), and <clip>_summary.json (processing time, live frame age)
