@@ -303,7 +303,9 @@ tracking of a single target will be
       - MJPEG: 1280 × 720 @ 120/60, 1920 × 1080 @ 120/60/30, 1920 × 1200 @ 114/60 fps
       - must be on a USB 3 port/cable for full UYVY rates (and sustained MJPEG at 120fps)
       - measured on USB 3 (record.py, 10s): 1080p60 MJPEG = 16.65ms mean interval, 1 drop;
-        1080p120 MJPEG delivers only ~110-114fps (8.8-9.1ms mean) with no sequence drops -- camera-side
+        1080p120 MJPEG reaches 119-120fps only with a queue after v4l2src (otherwise ~110fps); even with raw
+        v4l2-ctl capture, some exposure/gain combos run at 107-116fps (e.g., exp 20/gain 4), with no clear
+        pattern -- camera-side (USB 3 bulk, burst 15; not frame size). Check fps_measured in record.py's json
     * MJPEG quality: selectable quality factor
   - See3CAM_24CUG is the camera for initial testing (Phase 1)
   - Candidate for wide-area detection: Arducam B0397 (12MP*4 Quadrascopic Camera Bundle Kit)
@@ -551,7 +553,7 @@ tracking of a single target will be
   - camera.py: See3CAM_24CUG device lookup, manual exposure/gain/WB (raw V4L2 values), GStreamer source
   - make_charuco.py: generate the 7x5/50mm/35mm DICT_5X5_100 board PNG (300dpi) and board.json
     * `python3 src/make_charuco.py`
-  - record.py: MJPEG passthrough clips (.mkv, no re-encode) plus .json with settings, control readback, frame timing, and dropped frames (from driver sequence-number gaps)
+  - record.py: MJPEG passthrough clips (.mkv, no re-encode) plus .json with settings, control readback, frame timing, fps_measured, and dropped frames (from capture-timestamp gaps; driver sequence numbers miss frames the camera never sent)
     * `python3 src/record.py --seconds 20 --fps 60 --exposure 5 --gain 4 --label feeder`
   - calibrate.py: ChArUco intrinsics from a record.py clip -- selects sharp, well-spread views, holds out ~15% for validation
     * `python3 src/calibrate.py ~/at/clips/calib_<ts>.mkv`
@@ -560,6 +562,8 @@ tracking of a single target will be
     * `python3 src/motion_detect.py ~/at/clips/feeder_<ts>.mkv` (offline) or `python3 src/motion_detect.py --live --seconds 10` (camera)
     * writes <clip>_overlay.avi, <clip>_candidates.csv (frame, timestamp_ms, track_id, track_hits, box, area), and <clip>_summary.json (processing time, live frame age)
     * green boxes = tracks with >= --min-track-len hits, orange = unconfirmed candidates
+    * --max-candidates (default 50) keeps the largest blobs per frame; summary frames_capped > 0 means a noisy scene/thresholds
+    * live mode with the overlay video manages only ~15fps (overlay encode is CPU-bound) -- use --no-video for timing runs
     * decodes with CPU jpegdec -- nvjpegdec fails on this camera's MJPEG under JetPack 7.2
     * measured at 1080p60: ~15-19ms/frame processing; live frame age ~42-46ms mean (capture to result)
   - don't put jpegparse in these pipelines -- it replaces capture timestamps with framerate-interpolated ones
