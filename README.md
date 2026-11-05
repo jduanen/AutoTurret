@@ -561,6 +561,8 @@ tracking of a single target will be
     * `python3 src/record.py --seconds 20 --fps 60 --exposure 5 --gain 4 --label feeder`
   - calibrate.py: ChArUco intrinsics from a record.py clip -- selects sharp, well-spread views, holds out ~15% for validation
     * reads clips with GStreamer demux + cv2.imdecode of only every --stride-th frame (skips data before SOI, so misframed clips still work); ~100 fps of clip scanned
+    * accepts several clips (views pooled; labels <clip>:<frame>) -- only pool clips from the same focus/mount session
+    * --model standard|rational (default standard) -- use rational for the 24CUG: the 5-coefficient model folds over ~56deg off-axis and can't reach the right edge/corners (see CAMERA_CALIBRATION.md)
     * `python3 src/calibrate.py ~/at/clips/calib_<ts>.mkv`
     * writes calib_24cug.json (K, D, RMS, validation RMS, per-view errors) and residual/coverage/undistorted PNGs
     * prints/saves a coverage report (board-corner counts in 3x3 zones, outer 15% bands; SPARSE zones flagged)
@@ -578,6 +580,10 @@ tracking of a single target will be
       - remaining limit: MOG2 + morphology take ~17ms/frame at 1080p, right at the 16.7ms budget for 60fps
     * for this busy desk scene `--var-threshold 32 --min-area 50` roughly halves noise tracks; thresholds don't change
       per-frame cost (it's fixed by MOG2/morphology on the full frame, not by the number of candidates)
+    * Orin storage: the NVMe (Kingston SNV3S) occasionally loses a completion interrupt -- reads hang until the kernel's
+      30 s io_timeout recovers ("nvme nvme0: I/O tag ... timeout, completion polled" in journalctl -k; 2x on 2026-11-05,
+      plus unlogged multi-second stalls). calibrate.py waits up to 60 s per frame. Common Jetson workarounds (not applied):
+      kernel args nvme_core.default_ps_max_latency_us=0 (disable APST) and/or pcie_aspm=off
     * Orin power: run in MAXN SUPER (`sudo nvpmodel -m 2`); 25W mode was ~20% slower. Clocks still drop to ~0.9-1.2GHz
       between bursts under the default governor -- `sudo jetson_clocks` pins them (until reboot)
     * decodes with CPU jpegdec (~71 fps at 1080p); decode runs in parallel with the CV (~18 ms/frame), so it isn't the bottleneck
