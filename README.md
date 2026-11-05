@@ -447,6 +447,7 @@ tracking of a single target will be
 ### Phase 1: Target Detection
 
 * camera calibration
+  - step-by-step procedure, acceptance criteria, and results log: see CAMERA_CALIBRATION.md
   - measure intrinsics: lens's pixel-to-viewing ray mapping and distortion
     * make OpenCV ChArUco board
       - 7x5 squares, 50mm squares, 35mm marker side
