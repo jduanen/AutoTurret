@@ -13,6 +13,10 @@ POWER_MODE_MAX=2  # MAXN_SUPER max performance
 # set power mode
 sudo nvpmodel -m ${POWER_MODE_MAX}
 
+#### FIXME make this a conditional
+# pin the clocks (until next reboot)
+sudo jetson_clocks
+
 # check that it was set correctly
 nvpmodel -q ## --verbose
 echo "CPU Freq: " `cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq`
