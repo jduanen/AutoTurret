@@ -5,13 +5,15 @@ Record MJPEG passthrough clips from the See3CAM_24CUG (no re-encoding).
 Writes <label>_<timestamp>.mkv and a matching .json with capture settings,
 control readback, per-frame timing stats, and dropped frames (counted from gaps
 in the capture timestamps -- the driver's sequence numbers miss frames the camera
-never delivered).
+never delivered). Also counts misframed frames (not starting with the JPEG SOI
+marker), which the camera has occasionally produced for a whole clip.
 """
 
 import argparse
 import json
 import os
 import signal
+import sys
 import time
 
 import gi
@@ -50,9 +52,13 @@ def main():
         + f" ! matroskamux ! filesink location={stem}.mkv")
 
     pts = []
+    misframed = [0]
 
     def on_buffer(pad, info):
-        pts.append(info.get_buffer().pts)
+        buf = info.get_buffer()
+        pts.append(buf.pts)
+        if buf.extract_dup(0, 2) != b"\xff\xd8":  # copies just 2 bytes
+            misframed[0] += 1
         return Gst.PadProbeReturn.OK
 
     pipeline.get_by_name("src").get_static_pad("src").add_probe(
@@ -98,12 +104,18 @@ def main():
         "interval_ms_mean": sum(intervals) / len(intervals) if intervals else None,
         "interval_ms_max": max(intervals) if intervals else None,
         "dropped": dropped,
+        "misframed": misframed[0],
     }
     with open(stem + ".json", "w") as f:
         json.dump(meta, f, indent=2)
     print(json.dumps({k: meta[k] for k in
-                      ("file", "frames", "fps_measured", "interval_ms_mean", "interval_ms_max", "dropped")},
+                      ("file", "frames", "fps_measured", "interval_ms_mean", "interval_ms_max", "dropped",
+                       "misframed")},
                      indent=2))
+    if misframed[0]:
+        print(f"WARNING: {misframed[0]} of {len(pts)} frames don't start with a JPEG SOI marker "
+              "-- the camera's frame boundaries were off; re-record (calibrate.py can still "
+              "decode it, cv2.VideoCapture can't)", file=sys.stderr)
 
 
 if __name__ == "__main__":
