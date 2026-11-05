@@ -557,9 +557,10 @@ tracking of a single target will be
     * `python3 src/make_charuco.py --square-mm 35 --marker-mm 24.5 --out ~/at/board_letter` (fits US Letter landscape)
     * PDF at exact scale on a Letter page: `magick charuco_7x5_35mm.png -background white -gravity center -extent 3300x2550 -units PixelsPerInch -density 300 charuco_7x5_35mm_letter.pdf`
     * calibrate.py takes `--board ~/at/board_letter/board.json` for the Letter board
-  - record.py: MJPEG passthrough clips (.mkv, no re-encode) plus .json with settings, control readback, frame timing, fps_measured, and dropped frames (from capture-timestamp gaps; driver sequence numbers miss frames the camera never sent)
+  - record.py: MJPEG passthrough clips (.mkv, no re-encode) plus .json with settings, control readback, frame timing, fps_measured, dropped frames (from capture-timestamp gaps; driver sequence numbers miss frames the camera never sent), and misframed frames (not starting with JPEG SOI -- warns; seen once)
     * `python3 src/record.py --seconds 20 --fps 60 --exposure 5 --gain 4 --label feeder`
   - calibrate.py: ChArUco intrinsics from a record.py clip -- selects sharp, well-spread views, holds out ~15% for validation
+    * reads clips with GStreamer demux + cv2.imdecode of only every --stride-th frame (skips data before SOI, so misframed clips still work); ~100 fps of clip scanned
     * `python3 src/calibrate.py ~/at/clips/calib_<ts>.mkv`
     * writes calib_24cug.json (K, D, RMS, validation RMS, per-view errors) and residual/coverage/undistorted PNGs
     * prints/saves a coverage report (board-corner counts in 3x3 zones, outer 15% bands; SPARSE zones flagged)
