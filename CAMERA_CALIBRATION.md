@@ -99,15 +99,23 @@ While it records:
 ## 5. Fit the calibration
 
 ```bash
-python3 src/calibrate.py ~/at/clips/calib_<YYYYMMDD_HHMMSS>.mkv --board ~/at/board_letter/board.json
+python3 src/calibrate.py ~/at/clips/calib_<YYYYMMDD_HHMMSS>.mkv --board ~/at/board_letter/board.json --model rational
 ```
+
+**Several clips can be pooled.** List them all (`calibrate.py clipA.mkv clipB.mkv ...`, or `bin/doCalibration.sh clipA.mkv clipB.mkv -- --model rational`). Views from every clip go into the same selection. View labels become `<clip>:<frame>`, and the JSON keeps decode stats for each clip. This is meant for topping up coverage: a full clip plus a short clip of just the corners and edges.
+
+**Only pool clips from the same setup:** same focus, lens, mounting and resolution. Pooling `calib_20261105_120503` with `calib_20261104_144038` (recorded the day before) made the fit worse: RMS 0.364 rose to 0.544 px, and corners became INVALID again. Record the top-up clip in the same session, without touching the camera.
 
 What it does:
 1. Demuxes the clip with GStreamer. It decodes only every `--stride`th frame (default 10, i.e. 6 per second at 60 fps) with OpenCV, skipping any bytes before the SOI marker, and detects the board. It prints how many examined frames were misframed or undecodable.
 2. Rejects frames with fewer than `--min-corners` (8) corners, or whose Laplacian-variance sharpness over the board is below `--min-sharpness` (100).
 3. Sorts the remaining views into 27 buckets: a 3x3 grid of where the board centre falls, times 3 board sizes. It then picks the sharpest views round-robin across buckets, up to `--max-views` (50).
 4. Holds every `--holdout-every`th (7th) selected view out for validation, about 15%.
-5. Fits the standard 5-coefficient model with `cv2.calibrateCameraExtended`.
+5. Fits the distortion model chosen with `--model` using `cv2.calibrateCameraExtended`:
+   - `standard` (default): k1, k2, p1, p2, k3
+   - `rational`: adds k4, k5, k6 (`CALIB_RATIONAL_MODEL`)
+
+   **Use `--model rational` for the 24CUG.** On this 102 deg lens, the standard polynomial folds back about 56 deg off-axis. It then can't represent the right edge or the corners at all, whatever the coverage. The rational model fits better (lower RMS, validation RMS close to it) and stays invertible at the corners; see the results log. The JSON records the model, and `D` has 5 coefficients (standard) or 14 (rational; the unused ones are 0). OpenCV's `undistort` and `projectPoints` take either.
 
 Outputs, in `~/at/calib/` (`--out`, `--name` = `24cug`):
 
@@ -145,10 +153,37 @@ A probe is `INVALID` if its ray doesn't project back onto the same pixel. That m
 
 **Residual patterns:**
 - Arrows **lined up within one view's cluster:** the board flexed or moved during that frame. Hold it more firmly, pause longer, or raise `--min-sharpness`.
-- Arrows **consistently pointing outward or sideways near the edges** after the edges are well covered: the 5-coefficient model is too simple for this lens. The next step would be OpenCV's rational model (`CALIB_RATIONAL_MODEL`), which `calibrate.py` doesn't offer yet.
+- Arrows **consistently pointing outward or sideways near the edges** after the edges are well covered: the distortion model is too simple for this lens. Use `--model rational`. If that still leaves edge residuals or `INVALID` probes with good coverage, OpenCV's fisheye model is the next step; `calibrate.py` doesn't offer it yet.
 
 Keep the accepted `calib_24cug.json`. Later stages use its K and D to turn pixels into viewing rays.
 
+## Distortion models
+
+Every model starts from the ideal pinhole projection of a 3D point, x = X/Z, y = Y/Z, with r² = x² + y². Note that r = tan(θ), where θ is the angle off the optical axis. The distortion model moves that ideal point to where the lens actually puts it, (x_d, y_d). K then converts it to pixels: u = fx·x_d + cx, v = fy·y_d + cy.
+
+**Standard (`--model standard`, 5 coefficients k1, k2, p1, p2, k3)**
+
+x_d = x · (1 + k1·r² + k2·r⁴ + k3·r⁶) + tangential terms (p1, p2)
+
+The radial part is a polynomial. Barrel distortion needs a negative k1, so the distorted radius r_d = r·(1 + k1·r² + …) rises, peaks, and then falls. Past the peak, two different angles map to the same pixel and the model can't be inverted. Those are the `INVALID` probes in the field-angle report.
+
+On the 24CUG (2026-11-05 clip), the standard fit peaks at r = 1.48 (56 deg off-axis), where r_d = 0.918. The left edge needs r_d = 0.878, which is reachable. The right edge needs 0.939 and the corners 1.00-1.09. Those pixels can't be represented by this model at all, whatever the coverage.
+
+**Rational (`--model rational`, adds k4, k5, k6; `CALIB_RATIONAL_MODEL`)**
+
+x_d = x · (1 + k1·r² + k2·r⁴ + k3·r⁶) / (1 + k4·r² + k5·r⁴ + k6·r⁶) + tangential terms
+
+The ratio of two polynomials can level off instead of folding back, so r_d keeps increasing slowly with angle, as a real wide-angle lens does. On the same clip it reaches the corners (59-64 deg off-axis) and fits better: RMS 0.364 px vs 0.415, validation 0.375 vs 0.491.
+
+Notes:
+- **Individual coefficients aren't meaningful.** The fit gave k1 = 2.09 and k4 = 2.47. The numerator and denominator largely cancel, and only their ratio matters. Don't compare coefficients between models.
+- **`D` has 14 entries:** k1, k2, p1, p2, k3, k4, k5, k6, then thin-prism s1-s4 and sensor-tilt τx, τy. Only the first 8 are fitted; the rest are 0. `cv2.undistort`, `undistortPoints` and `projectPoints` accept any of these lengths.
+- **More parameters, more risk of overfitting.** Check that validation RMS stays close to fit RMS.
+- **It still extrapolates past the data.** Beyond the last board corners it can go anywhere.
+
+**Fisheye (not implemented)**
+
+OpenCV's fisheye model works on the angle θ directly, θ_d = θ·(1 + k1·θ² + k2·θ⁴ + …), instead of r = tan θ. It's meant for lenses beyond ~120 deg, where tan θ becomes very large. Try it only if the rational model still leaves `INVALID` probes or edge residuals with good edge and corner coverage. It needs a separate API (`cv2.fisheye.calibrate`), which `calibrate.py` doesn't use yet.
 ## Troubleshooting
 
 | Symptom | Cause / fix |
@@ -158,6 +193,7 @@ Keep the accepted `calib_24cug.json`. Later stages use its K and D to turn pixel
 | `no usable board views found` | `--board` doesn't match the printed board (size/dictionary), or the frames are blurred/dark. Check `test.jpg`, lower `--min-sharpness` |
 | `too few usable views` | Fewer than 10 training views survived. Record longer, pause at poses |
 | Very few views selected from a long clip | Most frames were blurred. Shorten the exposure, move more slowly |
+| `reading <clip> stalled for 60 s` | Storage stall. The Orin's NVMe occasionally loses a completion interrupt, and the read hangs until the kernel's 30 s `io_timeout` (`journalctl -k`: `nvme ... timeout, completion polled`). The reader waits up to 60 s, so this means something worse. See README.md, *Orin storage* |
 | Large RMS dominated by a few views | Inspect the "worst views" frames. Glare, fingers or flex are typical |
 
 ## Results log
@@ -165,4 +201,7 @@ Keep the accepted `calib_24cug.json`. Later stages use its K and D to turn pixel
 | Date | Clip | Board | RMS / val RMS | Notes |
 |---|---|---|---|---|
 | 2026-11-04 | `calib_20261104_144038.mkv` (2 min, exp 30, gain 8) | Letter | 0.52 / 0.57 px | **Not usable.** fx 1056, fy 1055, cx 942, **cy 461**. Right ~10% of the image, the bottom strip and 3 of 4 corners uncovered. Corner and right-edge field angles INVALID; vertical field of view lopsided (-25 / +34 deg). Aligned residuals in some views (board held by one corner). Re-record with edge/corner focus |
+| 2026-11-05 | `calib_20261105_120503.mkv` (2 min, exp 30, gain 8) | Letter | standard 0.415 / 0.491 px | **Not usable at the edges.** Edges now covered (x 4-96%, y 5-96%), but the corners are still empty (TR 0, BL 0, BR 1, TL 15 points). fx 1055.4, fy 1056.8, cx 928, cy 502. The standard model folds over at 56 deg off-axis, so the right edge and all corners are INVALID |
+| 2026-11-05 | same clip, `--model rational` | Letter | **0.364 / 0.375 px** | **Better model; still needs right-edge and corner data.** fx 1052.7, fy 1052.3, cx 926.5, cy 501.0. All corners valid (59-64 deg off-axis), but the right-edge midpoint is still INVALID (+61.2 deg), with L/R asymmetry +9.1 deg. Both models agree where there is data (left edge -52 deg, top -27.5, bottom +31.8). Re-record with the right edge and corners as the focus |
+| 2026-11-05 | `120503` + `144038` pooled, `--model rational` | Letter | 0.544 / 0.442 px | **Worse than 120503 alone.** fx 1065.6 vs 1052.7. Top-left, bottom-left and right edge INVALID again; only 4 of 50 views came from 144038. The clips are from different sessions (focus/mount likely changed), so don't pool them |
 | 2026-11-04 | `calib_20261104_153455.mkv` (2 min, exp 30, gain 8) | Letter | 1.67 / 1.46 px | **Not usable.** The first frames are misframed (2 misframed and 1 undecodable of 720 sampled). The fit is degenerate: fx 3341, fy 3853, H field of view 34 deg. Very dark (mean brightness ~20/255). Re-record |
