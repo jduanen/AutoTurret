@@ -21,7 +21,11 @@ from gi.repository import Gst
 
 import camera
 
-# nvjpegdec can't decode this camera's MJPEG on JetPack 7.2, so decode on the CPU
+# CPU decode. Decode runs on its own thread, in parallel with the CV, which is the
+# bottleneck (~18 ms/frame), so hardware decode gave no end-to-end gain (2026-11-05).
+# If decode ever becomes the limit: nvjpegdec rejects this camera's frames (restart
+# interval 1, 4:2:2), but "nvv4l2decoder mjpeg=1 ! nvvidconv" decodes them at ~133 fps
+# vs ~71 for jpegdec -- though live it intermittently stalled with 0 frames.
 DECODE = "jpegdec ! videoconvert ! video/x-raw,format=GRAY8 ! appsink name=sink"
 
 
@@ -101,9 +105,15 @@ def main():
     ap.add_argument("--max-missed", type=int, default=5, help="frames before a track is dropped")
     ap.add_argument("--min-track-len", type=int, default=3, help="hits before a track is drawn")
     ap.add_argument("--no-video", action="store_true", help="skip the overlay video")
+    ap.add_argument("--cv-threads", type=int, default=4,
+                    help="OpenCV worker threads (all 6 cores starves the decode thread)")
     args = ap.parse_args()
     if not args.live and not args.source:
         ap.error("give a clip or --live")
+
+    # On the 6-core Orin, leaving 2 cores for jpegdec and the Python loop took live
+    # 1080p60 from ~30 to ~50 fps processed (2026-11-05, MAXN SUPER)
+    cv2.setNumThreads(args.cv_threads)
 
     Gst.init(None)
     pipeline = build_pipeline(args)
