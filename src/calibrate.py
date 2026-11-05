@@ -12,26 +12,66 @@ import json
 import os
 
 import cv2
+import gi
 import numpy as np
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst
 
 from make_charuco import make_board
 
+SOI = b"\xff\xd8"
+
+
+def jpeg_frames(clip, stride=1):
+    """Yield (frame_index, jpeg_bytes) for every stride-th frame of a record.py .mkv.
+
+    Frames are demuxed with GStreamer and decoded later with OpenCV, so skipped
+    frames are never decoded. Not cv2.VideoCapture: its FFmpeg decoder stops at
+    the first frame that doesn't start with SOI, and the camera has produced a
+    whole clip like that (each frame preceded by ~10 KB of the previous one).
+    """
+    if not os.path.isfile(clip):
+        raise SystemExit(f"can't open {clip}")
+    Gst.init(None)
+    pipeline = Gst.parse_launch(
+        f"filesrc location={clip} ! matroskademux ! appsink name=sink sync=false")
+    sink = pipeline.get_by_name("sink")
+    pipeline.set_state(Gst.State.PLAYING)
+    try:
+        idx = 0
+        while True:
+            sample = sink.emit("try-pull-sample", 5 * Gst.SECOND)
+            if sample is None:
+                break
+            if idx % stride == 0:
+                buf = sample.get_buffer()
+                yield idx, buf.extract_dup(0, buf.get_size())
+            idx += 1
+    finally:
+        pipeline.set_state(Gst.State.NULL)
+
+
+def decode(jpeg, flags=cv2.IMREAD_GRAYSCALE):
+    """Decode one frame, skipping anything before SOI; returns (image or None, misframed)."""
+    k = jpeg.find(SOI)
+    if k < 0:
+        return None, True
+    return cv2.imdecode(np.frombuffer(jpeg, np.uint8, offset=k), flags), k > 0
+
 
 def collect_views(clip, board, stride, min_corners, min_sharpness):
-    """Return list of dicts (frame, obj, img, sharpness, centre, area) and image size."""
+    """Return list of dicts (frame, obj, img, sharpness, centre, area), image size,
+    and decode stats for the examined frames."""
     detector = cv2.aruco.CharucoDetector(board)
-    cap = cv2.VideoCapture(clip, cv2.CAP_FFMPEG)
-    if not cap.isOpened():
-        raise SystemExit(f"can't open {clip}")
-    views, size, idx = [], None, -1
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        idx += 1
-        if idx % stride:
+    views, size = [], None
+    stats = {"examined": 0, "misframed": 0, "undecodable": 0}
+    for idx, jpeg in jpeg_frames(clip, stride):
+        stats["examined"] += 1
+        gray, misframed = decode(jpeg)
+        stats["misframed"] += misframed
+        if gray is None:
+            stats["undecodable"] += 1
             continue
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         size = gray.shape[::-1]
         corners, ids, _, _ = detector.detectBoard(gray)
         if ids is None or len(ids) < min_corners:
@@ -43,8 +83,7 @@ def collect_views(clip, board, stride, min_corners, min_sharpness):
         obj, img = board.matchImagePoints(corners, ids)
         views.append({"frame": idx, "obj": obj, "img": img, "sharpness": sharp,
                       "centre": (x + w / 2, y + h / 2), "area": w * h})
-    cap.release()
-    return views, size
+    return views, size, stats
 
 
 def select_views(views, size, max_views):
@@ -208,8 +247,12 @@ def main():
         board_params = json.load(f)
     board = make_board(board_params)
 
-    views, size = collect_views(args.clip, board, args.stride,
-                                args.min_corners, args.min_sharpness)
+    views, size, decode_stats = collect_views(args.clip, board, args.stride,
+                                              args.min_corners, args.min_sharpness)
+    print(f"examined {decode_stats['examined']} frames: {decode_stats['misframed']} misframed "
+          f"(data before SOI, decoded anyway), {decode_stats['undecodable']} undecodable")
+    if decode_stats["examined"] == 0 or decode_stats["undecodable"] == decode_stats["examined"]:
+        raise SystemExit(f"no decodable frames in {args.clip}")
     if not views:
         raise SystemExit("no usable board views found -- check --board matches the printed board, "
                          "and focus/exposure/--min-sharpness")
@@ -242,6 +285,7 @@ def main():
         "train_frames": [v["frame"] for v in train],
         "validation_frames": [v["frame"] for v in val],
         "board": board_params,
+        "decode": decode_stats,
         "coverage": cov,
         "field_angles": ang,
     }
@@ -257,12 +301,14 @@ def main():
             cv2.circle(coverage, (int(px), int(py)), 6, color, -1)
     cv2.imwrite(os.path.join(args.out, f"coverage_{args.name}.png"), coverage)
 
-    cap = cv2.VideoCapture(args.clip, cv2.CAP_FFMPEG)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, train[0]["frame"])
-    ok, frame = cap.read()
-    if ok:
-        cv2.imwrite(os.path.join(args.out, f"undistorted_{args.name}.png"),
-                    cv2.undistort(frame, K, D))
+    sample_idx = min(v["frame"] for v in train)  # earliest, so the scan stays short
+    for idx, jpeg in jpeg_frames(args.clip):
+        if idx == sample_idx:
+            frame, _ = decode(jpeg, cv2.IMREAD_COLOR)
+            if frame is not None:
+                cv2.imwrite(os.path.join(args.out, f"undistorted_{args.name}.png"),
+                            cv2.undistort(frame, K, D))
+            break
 
     worst = sorted(result["per_view_rms_px"].items(), key=lambda kv: -kv[1])[:5]
     print(f"RMS {rms_fit:.3f} px, validation RMS "
