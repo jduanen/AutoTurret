@@ -570,7 +570,19 @@ tracking of a single target will be
     * green boxes = tracks with >= --min-track-len hits, orange = unconfirmed candidates
     * --max-candidates (default 50) keeps the largest blobs per frame; summary frames_capped > 0 means a noisy scene/thresholds
     * live mode with the overlay video manages only ~15fps (overlay encode is CPU-bound) -- use --no-video for timing runs
-    * decodes with CPU jpegdec -- nvjpegdec fails on this camera's MJPEG under JetPack 7.2
+    * --cv-threads (default 4) limits OpenCV's worker threads -- with all 6 Orin cores, MOG2 starves the jpegdec
+      thread and live 1080p60 processes only ~26-33fps; with 4 it processes ~49-51fps (MAXN SUPER, 2026-11-05)
+      - 3 threads is slower again (~21ms/frame); frame age rises ~10ms (frames queue instead of being dropped)
+      - remaining limit: MOG2 + morphology take ~17ms/frame at 1080p, right at the 16.7ms budget for 60fps
+    * for this busy desk scene `--var-threshold 32 --min-area 50` roughly halves noise tracks; thresholds don't change
+      per-frame cost (it's fixed by MOG2/morphology on the full frame, not by the number of candidates)
+    * Orin power: run in MAXN SUPER (`sudo nvpmodel -m 2`); 25W mode was ~20% slower. Clocks still drop to ~0.9-1.2GHz
+      between bursts under the default governor -- `sudo jetson_clocks` pins them (until reboot)
+    * decodes with CPU jpegdec (~71 fps at 1080p); decode runs in parallel with the CV (~18 ms/frame), so it isn't the bottleneck
+      - nvjpegdec rejects this camera's MJPEG: its frames have restart interval 1 (a marker every MCU), 4:2:2 chroma,
+        and 139-2038 bytes of padding after EOI; trimming the padding doesn't help, libjpeg re-encoded frames decode fine
+      - `nvv4l2decoder mjpeg=1 ! nvvidconv` decodes the frames as-is at ~133 fps, but gave no end-to-end gain and
+        intermittently stalled (0 frames) in live capture -- revisit if decode ever becomes the bottleneck
     * measured at 1080p60: ~15-19ms/frame processing; live frame age ~42-46ms mean (capture to result)
   - don't put jpegparse in these pipelines -- it replaces capture timestamps with framerate-interpolated ones
 
