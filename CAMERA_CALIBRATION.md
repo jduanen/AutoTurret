@@ -67,7 +67,7 @@ The board is moved by hand, so keep the exposure short to avoid motion blur: abo
 
 ```bash
 python3 src/record.py --seconds 3 --fps 60 --exposure 30 --gain 8 --label test
-python3 -c "import cv2,glob;c=cv2.VideoCapture(sorted(glob.glob('/home/jdn/at/clips/test_*.mkv'))[-1]);c.set(cv2.CAP_PROP_POS_FRAMES,90);print(cv2.imwrite('/home/jdn/at/test.jpg',c.read()[1]))"
+bin/extractFrame.sh            # frame 90 of the newest test_*.mkv -> ~/at/test.jpg (-f frame, -l label, -o out.jpg)
 ```
 
 Copy `~/at/test.jpg` back and check:
@@ -83,7 +83,9 @@ Adjust and repeat. Exposure 30 / gain 8 worked indoors on 2026-11-04.
 python3 src/record.py --seconds 120 --fps 60 --exposure 30 --gain 8 --label calib
 ```
 
-This writes `~/at/clips/calib_<YYYYMMDD_HHMMSS>.mkv` and a `.json` beside it. In the `.json`, check that `fps_measured` is about 60 and `dropped` is near 0.
+This writes `~/at/clips/calib_<YYYYMMDD_HHMMSS>.mkv` and a `.json` beside it. In the `.json`, check that `fps_measured` is about 60, `dropped` is near 0, and `misframed` is 0.
+
+`misframed` counts frames that don't start with the JPEG start-of-image (SOI) marker. The camera once produced a clip with its frame boundaries offset (`calib_20261104_153455.mkv`), and `record.py` prints a warning when this happens. Re-record if it does. `calibrate.py` and `bin/extractFrame.sh` can still read such a clip (they skip data before SOI), but `cv2.VideoCapture` can't, and the misframed frames themselves may be lost.
 
 While it records:
 - **Move slowly and pause about 1 s at each pose.** Blurred frames are rejected (see `--min-sharpness`).
@@ -101,7 +103,7 @@ python3 src/calibrate.py ~/at/clips/calib_<YYYYMMDD_HHMMSS>.mkv --board ~/at/boa
 ```
 
 What it does:
-1. Decodes every `--stride`th frame (default 10, i.e. 6 per second at 60 fps) and detects the board.
+1. Demuxes the clip with GStreamer. It decodes only every `--stride`th frame (default 10, i.e. 6 per second at 60 fps) with OpenCV, skipping any bytes before the SOI marker, and detects the board. It prints how many examined frames were misframed or undecodable.
 2. Rejects frames with fewer than `--min-corners` (8) corners, or whose Laplacian-variance sharpness over the board is below `--min-sharpness` (100).
 3. Sorts the remaining views into 27 buckets: a 3x3 grid of where the board centre falls, times 3 board sizes. It then picks the sharpest views round-robin across buckets, up to `--max-views` (50).
 4. Holds every `--holdout-every`th (7th) selected view out for validation, about 15%.
@@ -151,6 +153,7 @@ Keep the accepted `calib_24cug.json`. Later stages use its K and D to turn pixel
 
 | Symptom | Cause / fix |
 |---|---|
+| `no decodable frames in <clip>` | The clip is empty or corrupt. Check its `.json` (`frames`, `misframed`) |
 | `can't open <clip>` | Wrong path. Clips are `~/at/clips/<label>_<date>_<time>.mkv`, so pass the exact file and don't rely on a glob inside quotes |
 | `no usable board views found` | `--board` doesn't match the printed board (size/dictionary), or the frames are blurred/dark. Check `test.jpg`, lower `--min-sharpness` |
 | `too few usable views` | Fewer than 10 training views survived. Record longer, pause at poses |
@@ -162,3 +165,4 @@ Keep the accepted `calib_24cug.json`. Later stages use its K and D to turn pixel
 | Date | Clip | Board | RMS / val RMS | Notes |
 |---|---|---|---|---|
 | 2026-11-04 | `calib_20261104_144038.mkv` (2 min, exp 30, gain 8) | Letter | 0.52 / 0.57 px | **Not usable.** fx 1056, fy 1055, cx 942, **cy 461**. Right ~10% of the image, the bottom strip and 3 of 4 corners uncovered. Corner and right-edge field angles INVALID; vertical field of view lopsided (-25 / +34 deg). Aligned residuals in some views (board held by one corner). Re-record with edge/corner focus |
+| 2026-11-04 | `calib_20261104_153455.mkv` (2 min, exp 30, gain 8) | Letter | 1.67 / 1.46 px | **Not usable.** The first frames are misframed (2 misframed and 1 undecodable of 720 sampled). The fit is degenerate: fx 3341, fy 3853, H field of view 34 deg. Very dark (mean brightness ~20/255). Re-record |
