@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Fit camera intrinsics (K, D) from a ChArUco calibration clip made with record.py.
+Fit camera intrinsics (K, D) from one or more ChArUco calibration clips made with
+record.py (e.g., a full-coverage clip plus a short corners-and-edges clip).
 
 Samples frames, rejects blurred/poorly-detected views, picks views spread over
 the image (position x board-size buckets), holds some out for validation, runs
@@ -21,6 +22,10 @@ from make_charuco import make_board
 
 SOI = b"\xff\xd8"
 
+# calibrateCameraExtended flags per distortion model; D comes back with 5 or 8
+# coefficients, and everything downstream (undistort, projectPoints) takes either
+MODELS = {"standard": 0, "rational": cv2.CALIB_RATIONAL_MODEL}
+
 
 def jpeg_frames(clip, stride=1):
     """Yield (frame_index, jpeg_bytes) for every stride-th frame of a record.py .mkv.
@@ -34,15 +39,22 @@ def jpeg_frames(clip, stride=1):
         raise SystemExit(f"can't open {clip}")
     Gst.init(None)
     pipeline = Gst.parse_launch(
-        f"filesrc location={clip} ! matroskademux ! appsink name=sink sync=false")
+        # bounded appsink: demux blocks until we catch up, instead of queueing the whole
+        # (multi-GB) clip in RAM while detection runs
+        f"filesrc location={clip} ! matroskademux ! appsink name=sink sync=false max-buffers=8")
     sink = pipeline.get_by_name("sink")
     pipeline.set_state(Gst.State.PLAYING)
     try:
         idx = 0
         while True:
-            sample = sink.emit("try-pull-sample", 5 * Gst.SECOND)
+            # long timeout: the Orin's NVMe occasionally loses a completion interrupt and
+            # a read hangs until the kernel's 30 s io_timeout polls it (journalctl -k:
+            # "nvme ... timeout, completion polled"); wait that out rather than abort
+            sample = sink.emit("try-pull-sample", 60 * Gst.SECOND)
             if sample is None:
-                break
+                if sink.get_property("eos"):
+                    break
+                raise SystemExit(f"reading {clip} stalled for 60 s after {idx} frames")
             if idx % stride == 0:
                 buf = sample.get_buffer()
                 yield idx, buf.extract_dup(0, buf.get_size())
@@ -223,7 +235,8 @@ def print_reports(cov, ang):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("clip")
+    ap.add_argument("clips", nargs="+", metavar="clip",
+                    help="one or more calibration clips; views from all are pooled")
     ap.add_argument("--board", default=os.path.expanduser("~/at/board/board.json"))
     ap.add_argument("--out", default=os.path.expanduser("~/at/calib"))
     ap.add_argument("--name", default="24cug")
@@ -232,6 +245,9 @@ def main():
     ap.add_argument("--min-sharpness", type=float, default=100.0,
                     help="Laplacian variance over the board region")
     ap.add_argument("--max-views", type=int, default=50)
+    ap.add_argument("--model", choices=sorted(MODELS), default="standard",
+                    help="distortion model: standard = k1,k2,p1,p2,k3; "
+                         "rational = adds k4,k5,k6 (for wide lenses)")
     ap.add_argument("--holdout-every", type=int, default=7,
                     help="every Nth selected view goes to validation")
     ap.add_argument("--residual-scale", type=float, default=50.0)
@@ -247,12 +263,27 @@ def main():
         board_params = json.load(f)
     board = make_board(board_params)
 
-    views, size, decode_stats = collect_views(args.clip, board, args.stride,
-                                              args.min_corners, args.min_sharpness)
-    print(f"examined {decode_stats['examined']} frames: {decode_stats['misframed']} misframed "
-          f"(data before SOI, decoded anyway), {decode_stats['undecodable']} undecodable")
-    if decode_stats["examined"] == 0 or decode_stats["undecodable"] == decode_stats["examined"]:
-        raise SystemExit(f"no decodable frames in {args.clip}")
+    views, size, decode_stats = [], None, {}
+    for ci, clip in enumerate(args.clips):
+        clip_views, clip_size, stats = collect_views(clip, board, args.stride,
+                                                     args.min_corners, args.min_sharpness)
+        name = os.path.basename(clip)
+        print(f"{name}: examined {stats['examined']} frames: {stats['misframed']} misframed "
+              f"(data before SOI, decoded anyway), {stats['undecodable']} undecodable, "
+              f"{len(clip_views)} usable views")
+        if stats["examined"] == 0 or stats["undecodable"] == stats["examined"]:
+            raise SystemExit(f"no decodable frames in {clip}")
+        if size is not None and clip_size is not None and clip_size != size:
+            raise SystemExit(f"{name} is {clip_size[0]}x{clip_size[1]}, other clips are "
+                             f"{size[0]}x{size[1]} -- a calibration needs one image size")
+        size = size or clip_size
+        for v in clip_views:
+            v["clip"] = ci
+            # view label: the frame number, prefixed by the clip when there are several
+            v["label"] = f"{os.path.splitext(name)[0]}:{v['frame']}" if len(args.clips) > 1 \
+                else v["frame"]
+        views += clip_views
+        decode_stats[name] = stats
     if not views:
         raise SystemExit("no usable board views found -- check --board matches the printed board, "
                          "and focus/exposure/--min-sharpness")
@@ -266,7 +297,8 @@ def main():
         raise SystemExit("too few usable views -- record more board poses")
 
     rms_fit, K, D, rvecs, tvecs, std_int, _, per_view = cv2.calibrateCameraExtended(
-        [v["obj"] for v in train], [v["img"] for v in train], size, None, None)
+        [v["obj"] for v in train], [v["img"] for v in train], size, None, None,
+        flags=MODELS[args.model])
     val_rms = rms([reproj_errors(v, K, D) for v in val]) if val else None
     cov = coverage_report(picked, size, args.edge_frac, args.min_zone_points)
     ang = field_angles(K, D, size, args.max_asym_deg)
@@ -274,16 +306,17 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     result = {
         "camera": args.name,
-        "clip": os.path.basename(args.clip),
+        "clips": [os.path.basename(c) for c in args.clips],
         "image_size": list(size),
+        "model": args.model,
         "K": K.tolist(),
         "D": D.ravel().tolist(),
         "std_intrinsics": std_int.ravel().tolist(),
         "rms_px": rms_fit,
         "validation_rms_px": val_rms,
-        "per_view_rms_px": {v["frame"]: float(e) for v, e in zip(train, per_view.ravel())},
-        "train_frames": [v["frame"] for v in train],
-        "validation_frames": [v["frame"] for v in val],
+        "per_view_rms_px": {v["label"]: float(e) for v, e in zip(train, per_view.ravel())},
+        "train_frames": [v["label"] for v in train],
+        "validation_frames": [v["label"] for v in val],
         "board": board_params,
         "decode": decode_stats,
         "coverage": cov,
@@ -301,8 +334,10 @@ def main():
             cv2.circle(coverage, (int(px), int(py)), 6, color, -1)
     cv2.imwrite(os.path.join(args.out, f"coverage_{args.name}.png"), coverage)
 
-    sample_idx = min(v["frame"] for v in train)  # earliest, so the scan stays short
-    for idx, jpeg in jpeg_frames(args.clip):
+    # earliest train view of the first clip that has one, so the scan stays short
+    sample_clip = min(v["clip"] for v in train)
+    sample_idx = min(v["frame"] for v in train if v["clip"] == sample_clip)
+    for idx, jpeg in jpeg_frames(args.clips[sample_clip]):
         if idx == sample_idx:
             frame, _ = decode(jpeg, cv2.IMREAD_COLOR)
             if frame is not None:
@@ -311,9 +346,9 @@ def main():
             break
 
     worst = sorted(result["per_view_rms_px"].items(), key=lambda kv: -kv[1])[:5]
-    print(f"RMS {rms_fit:.3f} px, validation RMS "
+    print(f"{args.model} model: RMS {rms_fit:.3f} px, validation RMS "
           f"{'n/a' if val_rms is None else f'{val_rms:.3f}'} px")
-    print("worst views (frame: px):", ", ".join(f"{k}: {e:.2f}" for k, e in worst))
+    print("worst views (view: px):", ", ".join(f"{k}: {e:.2f}" for k, e in worst))
     print_reports(cov, ang)
     print(f"wrote results to {args.out}")
 
