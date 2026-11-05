@@ -4,7 +4,8 @@ Fit camera intrinsics (K, D) from one or more ChArUco calibration clips made wit
 record.py (e.g., a full-coverage clip plus a short corners-and-edges clip).
 
 Samples frames, rejects blurred/poorly-detected views, picks views spread over
-the image (position x board-size buckets), holds some out for validation, runs
+the image (greedy: each view picked for the coverage it adds), holds some out
+for validation, runs
 calibrateCameraExtended, and writes calib JSON plus diagnostic PNGs.
 """
 
@@ -72,7 +73,7 @@ def decode(jpeg, flags=cv2.IMREAD_GRAYSCALE):
 
 
 def collect_views(clip, board, stride, min_corners, min_sharpness):
-    """Return list of dicts (frame, obj, img, sharpness, centre, area), image size,
+    """Return list of dicts (frame, obj, img, sharpness), image size,
     and decode stats for the examined frames."""
     detector = cv2.aruco.CharucoDetector(board)
     views, size = [], None
@@ -93,29 +94,39 @@ def collect_views(clip, board, stride, min_corners, min_sharpness):
         if sharp < min_sharpness:
             continue
         obj, img = board.matchImagePoints(corners, ids)
-        views.append({"frame": idx, "obj": obj, "img": img, "sharpness": sharp,
-                      "centre": (x + w / 2, y + h / 2), "area": w * h})
+        views.append({"frame": idx, "obj": obj, "img": img, "sharpness": sharp})
     return views, size, stats
 
 
+# coverage grid for view selection: 16x9 cells of 120x120 px at 1920x1080
+GRID = (16, 9)
+
+
 def select_views(views, size, max_views):
-    """Round-robin the sharpest view from each (3x3 position, 3 size) bucket."""
+    """Greedily pick views by how much image coverage they add.
+
+    Each step takes the view whose corners add the most to a 16x9 grid, where a cell
+    is worth 1 / (1 + times already covered). Empty cells -- usually the corners and
+    edges of a wide lens -- dominate until filled, then coverage evens out.
+    Sharpness breaks ties. Returns the picked views and how many cells they cover.
+    """
     W, H = size
-    buckets = {}
+    gx, gy = GRID
     for v in views:
-        cx, cy = v["centre"]
-        frac = v["area"] / (W * H)
-        key = (min(int(3 * cx / W), 2), min(int(3 * cy / H), 2),
-               0 if frac < 0.1 else 1 if frac < 0.3 else 2)
-        buckets.setdefault(key, []).append(v)
-    for b in buckets.values():
-        b.sort(key=lambda v: -v["sharpness"])
-    picked = []
-    while len(picked) < max_views and any(buckets.values()):
-        for b in buckets.values():
-            if b and len(picked) < max_views:
-                picked.append(b.pop(0))
-    return picked, len(buckets)
+        pts = v["img"].reshape(-1, 2)
+        cx = np.clip((pts[:, 0] * gx / W).astype(int), 0, gx - 1)
+        cy = np.clip((pts[:, 1] * gy / H).astype(int), 0, gy - 1)
+        v["cells"] = np.unique(cy * gx + cx)
+    counts = np.zeros(gx * gy)
+    remaining, picked = list(views), []
+    while remaining and len(picked) < max_views:
+        i = max(range(len(remaining)),
+                key=lambda k: ((1.0 / (1.0 + counts[remaining[k]["cells"]])).sum(),
+                               remaining[k]["sharpness"]))
+        best = remaining.pop(i)  # by index: views hold numpy arrays, so no list.remove
+        picked.append(best)
+        counts[best["cells"]] += 1
+    return picked, int((counts > 0).sum())
 
 
 def reproj_errors(view, K, D, rvec=None, tvec=None):
@@ -287,11 +298,11 @@ def main():
     if not views:
         raise SystemExit("no usable board views found -- check --board matches the printed board, "
                          "and focus/exposure/--min-sharpness")
-    picked, n_buckets = select_views(views, size, args.max_views)
+    picked, n_cells = select_views(views, size, args.max_views)
     val = picked[args.holdout_every - 1::args.holdout_every]
     val_ids = {id(v) for v in val}  # identity: views hold numpy arrays
     train = [v for v in picked if id(v) not in val_ids]
-    print(f"{len(views)} usable views, {len(picked)} selected over {n_buckets} buckets "
+    print(f"{len(views)} usable views, {len(picked)} selected, covering {n_cells}/{GRID[0] * GRID[1]} grid cells "
           f"({len(train)} train / {len(val)} validation)")
     if len(train) < 10:
         raise SystemExit("too few usable views -- record more board poses")

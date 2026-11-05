@@ -559,7 +559,7 @@ tracking of a single target will be
     * calibrate.py takes `--board ~/at/board_letter/board.json` for the Letter board
   - record.py: MJPEG passthrough clips (.mkv, no re-encode) plus .json with settings, control readback, frame timing, fps_measured, dropped frames (from capture-timestamp gaps; driver sequence numbers miss frames the camera never sent), and misframed frames (not starting with JPEG SOI -- warns; seen once)
     * `python3 src/record.py --seconds 20 --fps 60 --exposure 5 --gain 4 --label feeder`
-  - calibrate.py: ChArUco intrinsics from a record.py clip -- selects sharp, well-spread views, holds out ~15% for validation
+  - calibrate.py: ChArUco intrinsics from record.py clip(s) -- selects views greedily by the 16x9-grid coverage they add (sharpness breaks ties), holds out ~15% for validation
     * reads clips with GStreamer demux + cv2.imdecode of only every --stride-th frame (skips data before SOI, so misframed clips still work); ~100 fps of clip scanned
     * accepts several clips (views pooled; labels <clip>:<frame>) -- only pool clips from the same focus/mount session
     * --model standard|rational (default standard) -- use rational for the 24CUG: the 5-coefficient model folds over ~56deg off-axis and can't reach the right edge/corners (see CAMERA_CALIBRATION.md)
