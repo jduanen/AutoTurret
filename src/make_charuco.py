@@ -31,26 +31,28 @@ def main():
     ap.add_argument("--margin-mm", type=float, default=10.0)
     ap.add_argument("--square-mm", type=float, default=50.0)
     ap.add_argument("--marker-mm", type=float, default=35.0)
+    ap.add_argument("--squaresX", type=int, default=SQUARES_X)
+    ap.add_argument("--squaresY", type=int, default=SQUARES_Y)
     args = ap.parse_args()
 
-    params = {"squares_x": SQUARES_X, "squares_y": SQUARES_Y,
+    params = {"squares_x": args.squaresX, "squares_y": args.squaresY,
               "square_m": args.square_mm / 1000, "marker_m": args.marker_mm / 1000,
               "dictionary": DICTIONARY}
     board = make_board(params)
 
     px_per_mm = args.dpi / 25.4
     margin = round(args.margin_mm * px_per_mm)
-    w = round(SQUARES_X * args.square_mm * px_per_mm) + 2 * margin
-    h = round(SQUARES_Y * args.square_mm * px_per_mm) + 2 * margin
+    w = round(args.squaresX * args.square_mm * px_per_mm) + 2 * margin
+    h = round(args.squaresY * args.square_mm * px_per_mm) + 2 * margin
     img = board.generateImage((w, h), marginSize=margin, borderBits=1)
 
     # self-check: the detector should find every inner corner on the clean image
     corners, ids, _, _ = cv2.aruco.CharucoDetector(board).detectBoard(img)
-    n_expected = (SQUARES_X - 1) * (SQUARES_Y - 1)
+    n_expected = (args.squaresX - 1) * (args.squaresY - 1)
     n_found = 0 if ids is None else len(ids)
 
     os.makedirs(args.out, exist_ok=True)
-    png = os.path.join(args.out, f"charuco_{SQUARES_X}x{SQUARES_Y}_{args.square_mm:g}mm.png")
+    png = os.path.join(args.out, f"charuco_{args.squaresX}x{args.squaresY}_{args.square_mm:g}mm.png")
     cv2.imwrite(png, img)
     with open(os.path.join(args.out, "board.json"), "w") as f:
         json.dump(params, f, indent=2)
